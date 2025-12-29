@@ -1,0 +1,40 @@
+# YouTube Knowledge Base Extractor - Dependencies
+# Python 3.10+
+
+# Core YouTube and Audio Processing
+yt-dlp==2025.12.8
+git+https://github.com/m-bain/whisperx.git  # Speech-to-text with speaker diarization (git version for CLI)
+
+# Machine Learning & Audio
+torch==2.8.0  # Deep learning framework (will auto-detect Metal/MPS for Mac)
+torchaudio==2.8.0  # Audio processing
+# Note: torchvision is a dependency of whisperx, will be installed automatically
+
+# CLI and Terminal UI
+typer==0.12.3  # CLI framework with beautiful help
+rich==13.7.0  # Beautiful terminal output (colors, tables, panels)
+
+# Data Validation
+pydantic==2.6.4  # Type validation and data parsing
+
+# Audio Processing
+pydub==0.25.1  # Audio format conversion
+librosa==0.10.0  # Audio analysis library
+soundfile==0.12.1  # Sound file I/O
+
+# Utilities
+python-dotenv==1.0.0  # Environment variable management
+requests==2.31.0  # HTTP client
+numpy>=2.0.2  # Numerical computing (WhisperX requires 2.0.2+)
+scipy==1.13.0  # Scientific computing
+psutil==5.9.8  # System resource monitoring (for setup pre-checks)
+
+# Optional: For better performance on Mac
+# Uncomment if you have issues with Metal GPU acceleration
+# pip install neural-speed  # Optional: optimized inference
+
+# Note: PyTorch will automatically detect and use:
+# - Metal (MPS) on Mac with Apple Silicon
+# - CUDA on NVIDIA GPUs
+# - MPS acceleration on Intel Macs
+# - CPU fallback if no GPU detected
