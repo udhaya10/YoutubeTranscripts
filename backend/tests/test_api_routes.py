@@ -448,5 +448,261 @@ class TestRequestModels:
         assert req.playlist_id == "pl123"
 
 
+class TestBoundaryConditions:
+    """Tests for boundary conditions and edge cases"""
+
+    def test_create_job_with_very_long_title(self, client, mock_db):
+        """Test job creation with extremely long video title"""
+        long_title = "A" * 1000  # 1000 character title
+        mock_db.create_job.return_value = {
+            "job_id": "test-job-123",
+            "video_id": "vid123",
+            "video_title": long_title,
+            "status": "pending",
+        }
+
+        response = client.post("/api/jobs", json={
+            "video_id": "vid123",
+            "video_title": long_title
+        })
+
+        assert response.status_code == 200
+        assert len(response.json()["video_title"]) == 1000
+
+    def test_update_job_progress_at_boundaries(self, client, mock_db):
+        """Test job progress at 0%, 50%, 100%"""
+        mock_db.get_job.return_value = {
+            "job_id": "job-1",
+            "progress": 0,
+            "status": "processing"
+        }
+
+        for progress in [0, 50, 100]:
+            mock_db.get_job.return_value["progress"] = progress
+            response = client.patch(f"/api/jobs/job-1?status=processing&progress={progress}")
+            assert response.status_code == 200
+
+    def test_add_large_batch_of_jobs(self, client, mock_db):
+        """Test adding 100 jobs in one batch operation"""
+        video_ids = [f"vid{i}" for i in range(100)]
+        mock_db.create_job.return_value = {
+            "job_id": "test-job",
+            "status": "pending"
+        }
+
+        response = client.post("/api/jobs/add-selected", json=video_ids)
+
+        assert response.status_code == 200
+        assert response.json()["created"] == 100
+
+    def test_extract_url_with_special_characters_in_title(self, client, mock_parser, mock_extractor):
+        """Test extraction with special characters in metadata title"""
+        special_title = "Test™ © ® 日本語 中文 العربية"
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "vid123"
+        }
+        mock_extractor.extract_video.return_value = {
+            "id": "vid123",
+            "title": special_title,
+        }
+
+        response = client.post("/api/extract", json={"url": "https://youtu.be/vid123"})
+
+        assert response.status_code == 200
+        assert response.json()["title"] == special_title
+
+    def test_list_jobs_empty_database(self, client, mock_db):
+        """Test listing jobs when database is empty"""
+        mock_db.list_jobs.return_value = []
+
+        response = client.get("/api/jobs")
+
+        assert response.status_code == 200
+        assert response.json()["jobs"] == []
+
+
+class TestDataValidation:
+    """Tests for data validation and format compliance"""
+
+    def test_job_status_values(self, client, mock_db):
+        """Test all valid job status values"""
+        valid_statuses = ["pending", "processing", "completed", "failed", "cancelled"]
+
+        for status in valid_statuses:
+            mock_db.update_job.return_value = {
+                "job_id": "job-1",
+                "status": status
+            }
+
+            response = client.patch(f"/api/jobs/job-1?status={status}")
+            assert response.status_code == 200
+
+    def test_job_id_uuid_format(self, client, mock_db):
+        """Test that job IDs follow expected format"""
+        job_id = "550e8400-e29b-41d4-a716-446655440000"
+        mock_db.read_job.return_value = {
+            "job_id": job_id,
+            "video_id": "vid123",
+            "status": "pending",
+            "created_at": "2024-01-15T00:00:00Z"
+        }
+
+        response = client.get(f"/api/jobs/{job_id}")
+
+        assert response.status_code == 200
+        assert response.json()["job_id"] == job_id
+
+    def test_response_timestamp_format(self, client, mock_db):
+        """Test that timestamps in responses follow ISO 8601 format"""
+        iso_timestamp = "2024-01-15T10:30:45.123456Z"
+        mock_db.read_job.return_value = {
+            "job_id": "job-1",
+            "video_id": "vid123",
+            "created_at": iso_timestamp,
+            "status": "pending"
+        }
+
+        response = client.get("/api/jobs/job-1")
+
+        assert response.status_code == 200
+        assert response.json()["created_at"] == iso_timestamp
+
+
+class TestConcurrentOperations:
+    """Tests for concurrent/parallel operations"""
+
+    def test_concurrent_job_creation(self, client, mock_db):
+        """Test rapid sequential job creation"""
+        mock_db.create_job.return_value = {
+            "job_id": "test-job",
+            "status": "pending"
+        }
+
+        # Simulate rapid job creation
+        for i in range(5):
+            response = client.post("/api/jobs", json={"video_id": f"vid{i}"})
+            assert response.status_code == 200
+
+    def test_multiple_updates_to_same_job(self, client, mock_db):
+        """Test multiple status/progress updates to the same job"""
+        job_id = "job-1"
+        updates = [
+            ("processing", 0),
+            ("processing", 25),
+            ("processing", 50),
+            ("processing", 75),
+            ("completed", 100)
+        ]
+
+        for status, progress in updates:
+            mock_db.update_job.return_value = {
+                "job_id": job_id,
+                "status": status,
+                "progress": progress
+            }
+
+            response = client.patch(f"/api/jobs/{job_id}?status={status}&progress={progress}")
+            assert response.status_code == 200
+
+
+class TestStateTransitions:
+    """Tests for job state machine transitions"""
+
+    def test_pending_to_processing_transition(self, client, mock_db):
+        """Test valid transition from pending to processing"""
+        mock_db.update_job_status.return_value = {"job_id": "job-1", "status": "processing", "progress": 0}
+
+        response = client.patch("/api/jobs/job-1?status=processing")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "processing"
+
+    def test_processing_to_completed_transition(self, client, mock_db):
+        """Test valid transition from processing to completed"""
+        mock_db.update_job_status.return_value = {"job_id": "job-1", "status": "completed", "progress": 100}
+
+        response = client.patch("/api/jobs/job-1?status=completed&progress=100")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "completed"
+
+    def test_processing_to_failed_transition(self, client, mock_db):
+        """Test valid transition from processing to failed"""
+        mock_db.update_job_status.return_value = {"job_id": "job-1", "status": "failed", "progress": 50}
+
+        response = client.patch("/api/jobs/job-1?status=failed")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "failed"
+
+    def test_failed_to_pending_retry_transition(self, client, mock_db):
+        """Test retry transition from failed back to pending"""
+        mock_db.update_job_status.return_value = {"job_id": "job-1", "status": "pending", "retry_count": 1, "progress": 0}
+
+        response = client.patch("/api/jobs/job-1?status=pending")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "pending"
+
+
+class TestResponseValidation:
+    """Tests for response structure and integrity"""
+
+    def test_job_response_has_required_fields(self, client, mock_db):
+        """Test that job response contains all required fields"""
+        required_fields = ["job_id", "video_id", "status", "created_at"]
+        mock_db.read_job.return_value = {
+            "job_id": "job-1",
+            "video_id": "vid123",
+            "status": "pending",
+            "created_at": "2024-01-15T00:00:00Z",
+            "progress": 0,
+            "retry_count": 0
+        }
+
+        response = client.get("/api/jobs/job-1")
+
+        assert response.status_code == 200
+        for field in required_fields:
+            assert field in response.json()
+
+    def test_list_jobs_response_structure(self, client, mock_db):
+        """Test that list jobs response has correct structure"""
+        mock_db.list_jobs.return_value = [
+            {"job_id": "job-1", "video_id": "vid1", "status": "pending"},
+            {"job_id": "job-2", "video_id": "vid2", "status": "completed"}
+        ]
+
+        response = client.get("/api/jobs")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert "jobs" in body
+        assert "count" in body
+        assert len(body["jobs"]) == 2
+        assert body["count"] == 2
+
+    def test_extract_response_structure(self, client, mock_parser, mock_extractor):
+        """Test that extract response has correct structure"""
+        required_fields = ["type", "id", "title", "metadata"]
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "vid123"
+        }
+        mock_extractor.extract_video.return_value = {
+            "id": "vid123",
+            "title": "Test Video",
+        }
+
+        response = client.post("/api/extract", json={"url": "https://youtu.be/vid123"})
+
+        assert response.status_code == 200
+        for field in required_fields:
+            assert field in response.json()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
