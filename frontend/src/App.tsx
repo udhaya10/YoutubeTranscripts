@@ -1,11 +1,12 @@
 /**
  * Main App component - YouTube Knowledge Base Web Application
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Header } from './components/Header'
 import { URLInput } from './components/URLInput'
 import { MetadataTree } from './components/MetadataTree'
 import { QueuePanel } from './components/QueuePanel'
+import { useQueueWebSocket } from './hooks/useQueueWebSocket'
 import { apiClient, Job } from './api'
 
 interface TreeNode {
@@ -22,6 +23,18 @@ function App() {
   const [selectedNodes, setSelectedNodes] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Handle real-time job updates from WebSocket (M19)
+  const handleJobUpdate = useCallback((updatedJob: Job) => {
+    setJobs((prevJobs) =>
+      prevJobs.map((job) =>
+        job.id === updatedJob.id ? updatedJob : job
+      )
+    )
+  }, [])
+
+  // Connect to WebSocket for real-time updates
+  const { isConnected } = useQueueWebSocket(handleJobUpdate)
 
   // Load jobs on mount
   useEffect(() => {
