@@ -1,0 +1,51 @@
+services:
+  backend:
+    # Build from local Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # Image name and tag
+    image: youtube-kb:latest
+    container_name: youtube-kb-backend
+
+    # Environment variables
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      OUTPUT_DIR: /app/transcripts
+      METADATA_DIR: /app/metadata
+      QUEUE_DIR: /app/queue
+
+    # Volume mounts for persistence
+    volumes:
+      # Transcripts: where output files are saved
+      - ./transcripts:/app/transcripts
+
+      # Metadata: extracted channel/playlist/video info (JSON, Markdown)
+      - ./metadata:/app/metadata
+
+      # Queue: SQLite database for job queue
+      - ./queue:/app/queue
+
+      # Model cache: WhisperX models persist between rebuilds (~3-5GB)
+      - whisper-cache:/root/.cache/huggingface
+
+    # Port mapping
+    ports:
+      - "8000:8000"
+
+    # Keep container running
+    restart: unless-stopped
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+# Named volume for persistent model caching
+volumes:
+  whisper-cache:
+    driver: local

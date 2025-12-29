@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.env
+.env.local
+.env.*.local
+
+# IDE and Editor
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+*~
+.sublime-*
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Output directories (don't include in build)
+transcripts/
+logs/
+*.log
+
+# Configuration (created at runtime)
+config.json
+
+# Documentation
+docs/
+*.md
+SETUP_INSTRUCTIONS.md
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS specific
+Thumbs.db
+.DS_Store
+
+# MacOS
+.AppleDouble
+.LSOverride
+
+# Setup artifacts
+setup.py
