@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   backend:
     # Build from local Dockerfile
@@ -45,7 +47,56 @@ services:
       retries: 3
       start_period: 5s
 
+    # Service dependencies
+    networks:
+      - youtube-kb-network
+
+  frontend:
+    # Build React frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+
+    # Container name
+    container_name: youtube-kb-frontend
+
+    # Port mapping
+    ports:
+      - "3000:3000"
+
+    # Volume for hot reload
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+
+    # Environment variables
+    environment:
+      VITE_API_URL: http://localhost:8000/api
+
+    # Keep container running
+    restart: unless-stopped
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # Service dependencies
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - youtube-kb-network
+
 # Named volume for persistent model caching
 volumes:
   whisper-cache:
     driver: local
+
+# Network for service communication
+networks:
+  youtube-kb-network:
+    driver: bridge
