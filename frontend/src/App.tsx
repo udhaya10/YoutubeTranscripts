@@ -30,11 +30,22 @@ function App() {
 
   const loadJobs = async () => {
     try {
-      const jobs = await apiClient.listJobs()
-      setJobs(jobs)
+      const result = await apiClient.listJobs()
+      setJobs(result.jobs)
     } catch (err) {
       console.error('Failed to load jobs:', err)
       setError(err instanceof Error ? err.message : 'Failed to load jobs')
+    }
+  }
+
+  const handleJobUpdate = async (jobId: string, status: string) => {
+    try {
+      await apiClient.updateJobStatus(jobId, status)
+      await loadJobs()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update job'
+      setError(message)
+      console.error('Job update error:', err)
     }
   }
 
@@ -171,7 +182,12 @@ function App() {
               Videos are processed one at a time in the background
             </p>
           </div>
-          <QueuePanel jobs={jobs} isLoading={isLoading} />
+          <QueuePanel
+            jobs={jobs}
+            isLoading={isLoading}
+            onRefresh={loadJobs}
+            onJobUpdate={handleJobUpdate}
+          />
         </section>
       </main>
 

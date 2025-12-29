@@ -1,13 +1,16 @@
 /**
  * JobCard component for displaying a single video transcription job
  */
+import { useState } from 'react'
 import { Job } from '../api'
 
 interface JobCardProps {
   job: Job
+  onStatusChange?: (jobId: string, status: string) => void
 }
 
-export function JobCard({ job }: JobCardProps) {
+export function JobCard({ job, onStatusChange }: JobCardProps) {
+  const [showActions, setShowActions] = useState(false)
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending':
@@ -97,6 +100,38 @@ export function JobCard({ job }: JobCardProps) {
               <span className="text-xs bg-muted/50 px-2 py-1 rounded">📋 Metadata</span>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      {(job.status === 'pending' || job.status === 'failed') && onStatusChange && (
+        <div className="pt-2 border-t border-muted space-y-2">
+          <button
+            onClick={() => setShowActions(!showActions)}
+            className="w-full text-xs py-1 px-2 rounded border border-muted hover:bg-muted transition font-medium"
+          >
+            {showActions ? 'Hide Actions' : 'Show Actions'}
+          </button>
+          {showActions && (
+            <div className="flex gap-2">
+              {job.status === 'failed' && (
+                <button
+                  onClick={() => onStatusChange(job.id, 'pending')}
+                  className="flex-1 text-xs py-1 px-2 rounded bg-primary/20 text-primary hover:bg-primary/30 transition font-medium"
+                >
+                  🔄 Retry
+                </button>
+              )}
+              {job.status === 'pending' && (
+                <button
+                  onClick={() => onStatusChange(job.id, 'cancelled')}
+                  className="flex-1 text-xs py-1 px-2 rounded bg-destructive/20 text-destructive hover:bg-destructive/30 transition font-medium"
+                >
+                  ✕ Cancel
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -91,7 +91,7 @@ class APIClient {
     return this.request(`/jobs/${jobId}`)
   }
 
-  async listJobs(status?: string): Promise<Job[]> {
+  async listJobs(status?: string): Promise<{ jobs: Job[]; count: number }> {
     const params = status ? `?status=${status}` : ''
     return this.request(`/jobs${params}`)
   }
@@ -101,18 +101,42 @@ class APIClient {
     status: string,
     progress?: number
   ): Promise<Job> {
-    return this.request(`/jobs/${jobId}`, {
+    const params = new URLSearchParams()
+    params.append('status', status)
+    if (progress !== undefined) {
+      params.append('progress', progress.toString())
+    }
+    return this.request(`/jobs/${jobId}?${params}`, {
       method: 'PATCH',
-      body: JSON.stringify({ status, progress }),
+    })
+  }
+
+  async addJobsToQueue(videoIds: string[]): Promise<{ created: number; jobs: Job[] }> {
+    return this.request('/jobs/add-selected', {
+      method: 'POST',
+      body: JSON.stringify(videoIds),
     })
   }
 
   // URL extraction
   async extractURL(url: string): Promise<URLExtractionResult> {
-    return this.request('/extract/url', {
+    return this.request('/extract', {
       method: 'POST',
       body: JSON.stringify({ url }),
     })
+  }
+
+  // Metadata retrieval
+  async getVideoMetadata(videoId: string): Promise<Record<string, any>> {
+    return this.request(`/metadata/video/${videoId}`)
+  }
+
+  async getPlaylistMetadata(playlistId: string): Promise<Record<string, any>> {
+    return this.request(`/metadata/playlist/${playlistId}`)
+  }
+
+  async getChannelMetadata(channelId: string): Promise<Record<string, any>> {
+    return this.request(`/metadata/channel/${channelId}`)
   }
 
   // WebSocket for real-time updates
