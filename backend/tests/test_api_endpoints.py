@@ -163,6 +163,90 @@ class TestCORSMiddleware:
         )
         assert response.status_code == 200
 
+    def test_cors_allows_multiple_origins(self, client):
+        """Test CORS with different origins"""
+        origins = [
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "https://example.com",
+        ]
+        for origin in origins:
+            response = client.get(
+                "/health",
+                headers={"Origin": origin}
+            )
+            assert response.headers["access-control-allow-origin"] == "*"
+
+    def test_cors_allow_credentials(self, client):
+        """Test that credentials are allowed in CORS"""
+        response = client.get(
+            "/health",
+            headers={"Origin": "http://localhost:3000"}
+        )
+        assert "access-control-allow-credentials" in response.headers
+
+    def test_cors_allow_methods(self, client):
+        """Test that all methods are allowed"""
+        response = client.options(
+            "/health",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "POST",
+            }
+        )
+        assert response.status_code == 200
+
+
+class TestDocumentationEndpoints:
+    """Tests for API documentation endpoints"""
+
+    def test_redoc_endpoint_html_structure(self, client):
+        """Test that ReDoc endpoint returns valid HTML"""
+        response = client.get("/redoc")
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        assert "redoc" in response.text.lower()
+        assert "openapi.json" in response.text
+
+    def test_openapi_json_schema_structure(self, client):
+        """Test that OpenAPI schema has correct structure"""
+        response = client.get("/openapi.json")
+        schema = response.json()
+
+        assert "openapi" in schema
+        assert "info" in schema
+        assert "paths" in schema
+        assert schema["info"]["title"] == "YouTube Knowledge Base API"
+        assert schema["info"]["version"] == "0.1.0"
+
+    def test_openapi_schema_includes_all_endpoints(self, client):
+        """Test that OpenAPI schema documents all endpoints"""
+        response = client.get("/openapi.json")
+        schema = response.json()
+        paths = schema["paths"]
+
+        assert "/" in paths
+        assert "/health" in paths
+
+    def test_redoc_has_redoc_script(self, client):
+        """Test that ReDoc page includes ReDoc JavaScript"""
+        response = client.get("/redoc")
+        assert "redoc.standalone.js" in response.text
+
+
+class TestErrorHandling:
+    """Tests for error handling"""
+
+    def test_nonexistent_endpoint_returns_404(self, client):
+        """Test that non-existent endpoints return 404"""
+        response = client.get("/nonexistent")
+        assert response.status_code == 404
+
+    def test_invalid_method_returns_405(self, client):
+        """Test that invalid HTTP methods return 405"""
+        response = client.post("/health")
+        assert response.status_code == 405
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
