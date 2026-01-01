@@ -143,7 +143,7 @@ class BackgroundWorker:
                     transcript_json=result.transcript_path.replace(".md", ".json")
                     if result.transcript_path
                     else None,
-                    metadata=f"{result.output_dir}/metadata.json"
+                    metadata_file=f"{result.output_dir}/metadata.json"
                     if result.output_dir
                     else None,
                 )

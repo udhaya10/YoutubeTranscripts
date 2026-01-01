@@ -353,5 +353,182 @@ class TestErrorHandling:
         assert result["video_count"] == 0
 
 
+class TestYouTubeExtractionErrorScenarios:
+    """Tests for YouTube API error scenarios"""
+
+    @patch('youtube_extractor.yt_dlp.YoutubeDL')
+    def test_extract_video_network_timeout(self, mock_ydl_class, extractor):
+        """Test video extraction with network timeout"""
+        import socket
+        mock_ydl_class.return_value.__enter__.return_value.extract_info.side_effect = socket.timeout("Connection timed out")
+
+        result = extractor.extract_video("vid_timeout")
+
+        assert result is None
+
+    @patch('youtube_extractor.yt_dlp.YoutubeDL')
+    def test_extract_video_404_not_found(self, mock_ydl_class, extractor):
+        """Test video extraction when video doesn't exist"""
+        mock_ydl_class.return_value.__enter__.return_value.extract_info.side_effect = Exception("video not found")
+
+        result = extractor.extract_video("vid_notfound")
+
+        assert result is None
+
+    @patch('youtube_extractor.yt_dlp.YoutubeDL')
+    def test_extract_video_403_age_restricted(self, mock_ydl_class, extractor):
+        """Test video extraction for age-restricted content"""
+        mock_ydl_class.return_value.__enter__.return_value.extract_info.side_effect = Exception("age restricted")
+
+        result = extractor.extract_video("vid_agerestricted")
+
+        assert result is None
+
+    @patch('youtube_extractor.yt_dlp.YoutubeDL')
+    def test_extract_video_429_rate_limited(self, mock_ydl_class, extractor):
+        """Test video extraction with rate limiting"""
+        mock_ydl_class.return_value.__enter__.return_value.extract_info.side_effect = Exception("HTTP Error 429: Too Many Requests")
+
+        result = extractor.extract_video("vid_ratelimit")
+
+        assert result is None
+
+    @patch('youtube_extractor.yt_dlp.YoutubeDL')
+    def test_extract_malformed_json_response(self, mock_ydl_class, extractor):
+        """Test extraction with malformed JSON response"""
+        mock_ydl_class.return_value.__enter__.return_value.extract_info.side_effect = Exception("Invalid JSON")
+
+        result = extractor.extract_video("vid_malformed")
+
+        assert result is None
+
+    @patch('youtube_extractor.yt_dlp.YoutubeDL')
+    def test_extract_incomplete_data_structure(self, mock_ydl_class, extractor):
+        """Test extraction with missing required fields"""
+        mock_ydl = MagicMock()
+        mock_ydl_class.return_value.__enter__.return_value = mock_ydl
+        # Return minimal data missing critical fields
+        mock_ydl.extract_info.return_value = {
+            "id": "vid123",
+            # Missing title, uploader, duration
+        }
+
+        result = extractor.extract_video("vid123")
+
+        # Should still process even with missing optional fields
+        assert result is not None
+        assert result["id"] == "vid123"
+
+    @patch('youtube_extractor.yt_dlp.YoutubeDL')
+    def test_extract_unicode_in_title(self, mock_ydl_class, extractor):
+        """Test extraction with Unicode characters in title"""
+        mock_ydl = MagicMock()
+        mock_ydl_class.return_value.__enter__.return_value = mock_ydl
+        mock_ydl.extract_info.return_value = {
+            "id": "vid_unicode",
+            "title": "日本語タイトル (Japanese) 中文标题 (Chinese) العربية (Arabic)",
+            "uploader": "テスト チャンネル",
+            "duration": 300,
+        }
+
+        result = extractor.extract_video("vid_unicode")
+
+        assert result is not None
+        assert "日本語" in result["title"]
+
+    @patch('youtube_extractor.yt_dlp.YoutubeDL')
+    def test_extract_huge_playlist_1000_videos(self, mock_ydl_class, extractor):
+        """Test extraction of very large playlist (1000+ videos)"""
+        mock_ydl = MagicMock()
+        mock_ydl_class.return_value.__enter__.return_value = mock_ydl
+        # Generate 1000 fake video entries
+        entries = [
+            {
+                "id": f"vid_{i}",
+                "title": f"Video {i}",
+                "uploader": "Test Channel",
+                "duration": 300 + i,
+            }
+            for i in range(1000)
+        ]
+        mock_ydl.extract_info.return_value = {
+            "title": "Huge Playlist",
+            "uploader": "Test Channel",
+            "description": "1000 video playlist",
+            "entries": entries,
+        }
+
+        result = extractor.extract_playlist("PL_huge")
+
+        assert result is not None
+        assert result["video_count"] == 1000
+        assert len(result["videos"]) == 1000
+
+    @patch('youtube_extractor.yt_dlp.YoutubeDL')
+    def test_extract_video_with_extremely_long_description(self, mock_ydl_class, extractor):
+        """Test video with very long description (10,000+ characters)"""
+        mock_ydl = MagicMock()
+        mock_ydl_class.return_value.__enter__.return_value = mock_ydl
+        long_description = "A" * 10000
+        mock_ydl.extract_info.return_value = {
+            "id": "vid_longdesc",
+            "title": "Long Description Video",
+            "uploader": "Test",
+            "description": long_description,
+            "duration": 600,
+        }
+
+        result = extractor.extract_video("vid_longdesc")
+
+        assert result is not None
+        assert len(result["description"]) == 10000
+
+    @patch('youtube_extractor.yt_dlp.YoutubeDL')
+    def test_extract_connection_refused(self, mock_ydl_class, extractor):
+        """Test extraction when connection is refused"""
+        import socket
+        mock_ydl_class.return_value.__enter__.return_value.extract_info.side_effect = socket.error("Connection refused")
+
+        result = extractor.extract_video("vid_connrefused")
+
+        assert result is None
+
+    @patch('youtube_extractor.yt_dlp.YoutubeDL')
+    def test_extract_invalid_video_id_format(self, mock_ydl_class, extractor):
+        """Test extraction with invalid video ID format"""
+        mock_ydl_class.return_value.__enter__.return_value.extract_info.side_effect = Exception("Invalid video ID")
+
+        result = extractor.extract_video("invalid_video_id")
+
+        assert result is None
+
+    @patch('youtube_extractor.yt_dlp.YoutubeDL')
+    def test_extract_private_video(self, mock_ydl_class, extractor):
+        """Test extraction of private video"""
+        mock_ydl_class.return_value.__enter__.return_value.extract_info.side_effect = Exception("Private video")
+
+        result = extractor.extract_video("vid_private")
+
+        assert result is None
+
+    @patch('youtube_extractor.yt_dlp.YoutubeDL')
+    def test_extract_deleted_video(self, mock_ydl_class, extractor):
+        """Test extraction of deleted video"""
+        mock_ydl_class.return_value.__enter__.return_value.extract_info.side_effect = Exception("Video has been removed")
+
+        result = extractor.extract_video("vid_deleted")
+
+        assert result is None
+
+    @patch('youtube_extractor.yt_dlp.YoutubeDL')
+    def test_extract_suspended_channel(self, mock_ydl_class, extractor):
+        """Test extraction from suspended channel"""
+        mock_ydl_class.return_value.__enter__.return_value.extract_info.side_effect = Exception("Channel has been terminated")
+
+        result = extractor.extract_channel("UC_suspended")
+
+        assert result is None
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
