@@ -1,0 +1,29 @@
+{
+  "id": "PLAIphj_4bMitOY6sMP6uQxCFFs5otllX9",
+  "title": "AI Concepts for better Performance",
+  "uploader": "Darren Builds AI",
+  "description": "",
+  "video_count": 3,
+  "videos": [
+    {
+      "id": "wjYmgvssago",
+      "title": "Your AI Agents Are Failing in Production | Stop Guessing, Start Measuring",
+      "uploader": "Darren Builds AI",
+      "duration": 825
+    },
+    {
+      "id": "TNiEm2u9U6g",
+      "title": "Why Your Understanding of AI Context is Probably WRONG",
+      "uploader": "Darren Builds AI",
+      "duration": 854
+    },
+    {
+      "id": "BUIpHp2qLSI",
+      "title": "The ABSOLUTE BEST Way to Balance AI Prompt Simplicity and Context",
+      "uploader": "Darren Builds AI",
+      "duration": 740
+    }
+  ],
+  "_saved_at": "2026-01-01T19:28:14.664308",
+  "_type": "playlist"
+}

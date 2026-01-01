@@ -19,6 +19,11 @@ export function URLInput({ onSubmit, isLoading = false }: URLInputProps) {
   const [validation, setValidation] = useState<ValidationResult>('none')
   const [validationTimer, setValidationTimer] = useState<NodeJS.Timeout | null>(null)
 
+  // Render diagnostic
+  const buttonDisabled = isLoading || validation === 'invalid' || validation === 'loading' || validation === 'none'
+  console.log('[URLInput] RENDER - validation:', validation, 'url:', url, 'isLoading:', isLoading, 'buttonDisabled:', buttonDisabled)
+  console.log('[URLInput] onSubmit callback:', typeof onSubmit, onSubmit ? 'defined' : 'UNDEFINED!')
+
   const validateUrl = useCallback(async (inputUrl: string) => {
     console.log('[URLInput] Starting validation for:', inputUrl)
     if (!inputUrl.trim()) {
@@ -191,12 +196,14 @@ export function URLInput({ onSubmit, isLoading = false }: URLInputProps) {
 
       <Button
         onClick={() => {
-          console.log('[URLInput] Button clicked. isLoading:', isLoading, 'validation:', validation, 'url:', url)
+          console.log('[URLInput] ⭐ BUTTON CLICKED! isLoading:', isLoading, 'validation:', validation, 'url:', url)
+          alert('[DEBUG] Button clicked! Check console for details.')
           handleSubmit()
         }}
-        disabled={isLoading || validation === 'invalid' || validation === 'loading' || validation === 'none'}
+        disabled={buttonDisabled}
         className="w-full"
         size="lg"
+        style={{opacity: buttonDisabled ? 0.5 : 1, cursor: buttonDisabled ? 'not-allowed' : 'pointer'}}
       >
         {isLoading ? 'Extracting...' : 'Extract Content'}
       </Button>
