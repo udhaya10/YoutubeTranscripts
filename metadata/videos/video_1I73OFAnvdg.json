@@ -1,0 +1,13 @@
+{
+  "id": "1I73OFAnvdg",
+  "title": "Task Master AI Has Changed How I Code FOREVER (w/ Claude Code)",
+  "uploader": "Better Stack",
+  "uploader_id": "@betterstack",
+  "duration": 436,
+  "description": "Task master AI has completely changed my approach to AI coding with Claude Code. After you see what it built in ONE SHOT, you'll understand why this changes everything. In this video, I show you exactly how Task master breaks down complex prompts into structured tasks that actually work, from setting up with Claude Code to creating PRD documents that guide AI properly, breaking down complex tasks into manageable subtasks, and running parallel AI agents for faster development. The results speak for themselves: a complete Next.js recipe extraction app with drag-and-drop functionality, OpenAI integration, IndexedDB storage, full CRUD operations with editing capabilities, and responsive UI - all built automatically without writing a single line of code manually. This isn't just another AI coding tutorial, it's a complete workflow that delivers production-ready applications using Taskmaster, Claude Code, Next.js, OpenAI Vision API, and modern web technologies. If you're tired of AI tools that promise everything but deliver broken code, Taskmaster is the game-changer you've been waiting for.\n\n🔗 Relevant Links\nTask Master Github - https://github.com/eyaltoledano/claude-task-master\nTask Master Claude Code - https://github.com/eyaltoledano/claude-task-master/blob/main/docs/examples/claude-code-usage.md\n\n❤️ More about us\nRadically better observability stack: https://betterstack.com/\nWritten tutorials: https://betterstack.com/community/\nExample projects: https://github.com/BetterStackHQ\n\n📱 Socials\nTwitter: https://twitter.com/betterstackhq\nInstagram: https://www.instagram.com/betterstackhq/\nTikTok: https://www.tiktok.com/@betterstack\nLinkedIn: https://www.linkedin.com/company/betterstack\n\n📌 Chapters:\n0:00 - Introduction to Taskmaster\n0:28 - Project Setup & Installation  \n1:21 - Model Configuration\n1:57 - PRD Creation Process\n2:57 - Task Generation\n3:37 - Complexity Analysis\n4:21 - Task Execution\n4:54 - Live App Demo",
+  "view_count": 11973,
+  "upload_date": "20250724",
+  "thumbnail": "https://i.ytimg.com/vi_webp/1I73OFAnvdg/maxresdefault.webp",
+  "_saved_at": "2026-01-01T17:32:05.498148",
+  "_type": "video"
+}

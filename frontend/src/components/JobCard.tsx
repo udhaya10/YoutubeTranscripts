@@ -86,11 +86,12 @@ export function JobCard({ job, onStatusChange }: JobCardProps) {
         )}
       </div>
 
-      {job.error_message && (
+      {/* Only show error box for failed jobs */}
+      {job.error_message && job.status === 'failed' && (
         <div className="p-2 rounded bg-destructive/10 border border-destructive/30 space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-destructive font-medium">⚠️ Error</span>
-            {job.status === 'failed' && job.retry_count && job.retry_count < 3 && (
+            {job.retry_count && job.retry_count < 3 && (
               <span className="text-xs text-destructive/80">(will retry)</span>
             )}
           </div>

@@ -1,69 +1,150 @@
 /**
- * URL Input component for pasting YouTube URLs
+ * UrlInput component with real-time validation using shadcn/ui
+ * Shows whether the URL is a Playlist, Video, or Channel
  */
-import { useState } from 'react'
+import { useState, useCallback, useEffect } from 'react'
+import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/ui/button'
+import { apiClient } from '../api'
 
 interface URLInputProps {
   onSubmit: (url: string) => void
   isLoading?: boolean
 }
 
+type ValidationResult = 'none' | 'video' | 'playlist' | 'channel' | 'invalid' | 'loading'
+
 export function URLInput({ onSubmit, isLoading = false }: URLInputProps) {
   const [url, setUrl] = useState('')
-  const [error, setError] = useState('')
+  const [validation, setValidation] = useState<ValidationResult>('none')
+  const [validationTimer, setValidationTimer] = useState<NodeJS.Timeout | null>(null)
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-
-    if (!url.trim()) {
-      setError('Please enter a URL')
+  const validateUrl = useCallback(async (inputUrl: string) => {
+    if (!inputUrl.trim()) {
+      setValidation('none')
       return
     }
 
-    if (!isValidURL(url)) {
-      setError('Please enter a valid YouTube URL')
-      return
+    setValidation('loading')
+
+    try {
+      const result = await apiClient.extractURL(inputUrl)
+      const typeMap: Record<string, ValidationResult> = {
+        'video': 'video',
+        'playlist': 'playlist',
+        'channel': 'channel',
+        'unknown': 'invalid'
+      }
+      setValidation(typeMap[result.type] || 'invalid')
+    } catch (err) {
+      setValidation('invalid')
+    }
+  }, [])
+
+  const handleUrlChange = (value: string) => {
+    setUrl(value)
+
+    // Clear previous timer
+    if (validationTimer) {
+      clearTimeout(validationTimer)
     }
 
-    onSubmit(url)
-    setUrl('')
+    // Debounce validation - only validate after user stops typing for 500ms
+    const timer = setTimeout(() => validateUrl(value), 500)
+    setValidationTimer(timer)
   }
 
-  const isValidURL = (str: string): boolean => {
-    try {
-      new URL(str)
-      return str.includes('youtube.com') || str.includes('youtu.be')
-    } catch {
-      return false
+  useEffect(() => {
+    return () => {
+      if (validationTimer) {
+        clearTimeout(validationTimer)
+      }
+    }
+  }, [validationTimer])
+
+  const handleSubmit = () => {
+    if (validation !== 'invalid' && validation !== 'loading' && validation !== 'none') {
+      onSubmit(url)
+      setUrl('')
+      setValidation('none')
+    }
+  }
+
+  const getValidationIcon = () => {
+    switch (validation) {
+      case 'loading':
+        return '⏳'
+      case 'video':
+        return '✓'
+      case 'playlist':
+        return '✓'
+      case 'channel':
+        return '✓'
+      case 'invalid':
+        return '✗'
+      default:
+        return ''
+    }
+  }
+
+  const getValidationText = () => {
+    switch (validation) {
+      case 'loading':
+        return 'Validating...'
+      case 'video':
+        return 'Video'
+      case 'playlist':
+        return 'Playlist'
+      case 'channel':
+        return 'Channel'
+      case 'invalid':
+        return 'Invalid'
+      default:
+        return ''
+    }
+  }
+
+  const getValidationColor = () => {
+    switch (validation) {
+      case 'loading':
+        return 'text-amber-500'
+      case 'video':
+      case 'playlist':
+      case 'channel':
+        return 'text-green-500'
+      case 'invalid':
+        return 'text-red-500'
+      default:
+        return 'text-muted-foreground'
     }
   }
 
   return (
-    <div className="space-y-2">
-      <form onSubmit={handleSubmit} className="flex gap-2">
-        <input
-          type="text"
-          placeholder="Paste a YouTube URL (video, playlist, or channel)..."
+    <div className="space-y-4">
+      <div className="relative">
+        <Textarea
+          placeholder="Paste YouTube URL (video, playlist, or channel)..."
           value={url}
-          onChange={(e) => {
-            setUrl(e.target.value)
-            setError('')
-          }}
+          onChange={(e) => handleUrlChange(e.target.value)}
+          className="min-h-24 pr-32 resize-none"
           disabled={isLoading}
-          className="flex-1 rounded border border-muted bg-card px-3 py-2 text-foreground placeholder-muted-foreground focus:border-primary focus:outline-none disabled:opacity-50"
         />
-        <button
-          type="submit"
-          disabled={isLoading || !url.trim()}
-          className="rounded bg-primary px-4 py-2 text-primary-foreground hover:bg-primary/90 disabled:opacity-50 font-medium transition"
-        >
-          {isLoading ? 'Loading...' : 'Extract'}
-        </button>
-      </form>
-      {error && (
-        <p className="text-sm text-destructive">{error}</p>
-      )}
+        {validation !== 'none' && (
+          <div className={`absolute right-4 top-4 text-sm font-medium ${getValidationColor()} text-center`}>
+            <div className="text-2xl">{getValidationIcon()}</div>
+            <div className="text-xs mt-1 whitespace-nowrap">{getValidationText()}</div>
+          </div>
+        )}
+      </div>
+
+      <Button
+        onClick={handleSubmit}
+        disabled={isLoading || validation === 'invalid' || validation === 'loading' || validation === 'none'}
+        className="w-full"
+        size="lg"
+      >
+        {isLoading ? 'Extracting...' : 'Extract Content'}
+      </Button>
     </div>
   )
 }

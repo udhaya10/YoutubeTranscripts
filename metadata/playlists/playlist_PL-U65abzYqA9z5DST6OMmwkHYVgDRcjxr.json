@@ -1,0 +1,29 @@
+{
+  "id": "PL-U65abzYqA9z5DST6OMmwkHYVgDRcjxr",
+  "title": "AI Tools",
+  "uploader": "Caleb Writes Code",
+  "description": "Overview of Useful AI Tools",
+  "video_count": 3,
+  "videos": [
+    {
+      "id": "BE2Z2WrEjNg",
+      "title": "Figma Make",
+      "uploader": "Caleb Writes Code",
+      "duration": 291
+    },
+    {
+      "id": "YbhXPjKIpm4",
+      "title": "OK Computer, Kimi",
+      "uploader": "Caleb Writes Code",
+      "duration": 233
+    },
+    {
+      "id": "XpoobWeUQTg",
+      "title": "Replit Agent 3 Explained",
+      "uploader": "Caleb Writes Code",
+      "duration": 303
+    }
+  ],
+  "_saved_at": "2026-01-01T18:20:52.607788",
+  "_type": "playlist"
+}
