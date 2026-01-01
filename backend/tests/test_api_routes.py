@@ -18,6 +18,7 @@ with patch('api_routes.YouTubeURLParser'), \
      patch('api_routes.JobDatabase'), \
      patch('api_routes.MetadataStore'):
     from api_routes import router, ExtractRequest, ExtractResponse, JobRequest
+    from youtube_extractor import ExtractionError, ErrorType
     import api_routes
 
 
@@ -180,7 +181,112 @@ class TestURLExtraction:
         response = client.post("/api/extract", json={"url": "https://youtu.be/vid123"})
 
         assert response.status_code == 200
-        assert response.json()["title"] == "Unknown Video"
+        assert response.json()["title"] == "Unknown Content"
+
+    def test_extract_video_not_found_returns_404(self, client, mock_parser, mock_extractor):
+        """Test extraction returns 404 for NOT_FOUND error"""
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "invalid_video"
+        }
+        error = ExtractionError(ErrorType.NOT_FOUND, "Video not found", retryable=False)
+        mock_extractor.extract_video.return_value = error
+
+        response = client.post("/api/extract", json={"url": "https://youtu.be/invalid_video"})
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_extract_timeout_returns_503(self, client, mock_parser, mock_extractor):
+        """Test extraction returns 503 for TIMEOUT error"""
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "vid123"
+        }
+        error = ExtractionError(ErrorType.TIMEOUT, "Network request timed out", retryable=True)
+        mock_extractor.extract_video.return_value = error
+
+        response = client.post("/api/extract", json={"url": "https://youtu.be/vid123"})
+
+        assert response.status_code == 503
+        assert "timeout" in response.json()["detail"].lower()
+
+    def test_extract_rate_limited_returns_429(self, client, mock_parser, mock_extractor):
+        """Test extraction returns 429 for RATE_LIMITED error"""
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "vid123"
+        }
+        error = ExtractionError(ErrorType.RATE_LIMITED, "Rate limited by YouTube", retryable=True)
+        mock_extractor.extract_video.return_value = error
+
+        response = client.post("/api/extract", json={"url": "https://youtu.be/vid123"})
+
+        assert response.status_code == 429
+        assert "rate limited" in response.json()["detail"].lower()
+
+    def test_extract_forbidden_returns_403(self, client, mock_parser, mock_extractor):
+        """Test extraction returns 403 for FORBIDDEN error"""
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "vid123"
+        }
+        error = ExtractionError(ErrorType.FORBIDDEN, "Access forbidden", retryable=False)
+        mock_extractor.extract_video.return_value = error
+
+        response = client.post("/api/extract", json={"url": "https://youtu.be/vid123"})
+
+        assert response.status_code == 403
+        assert "forbidden" in response.json()["detail"].lower()
+
+    def test_extract_restricted_returns_403(self, client, mock_parser, mock_extractor):
+        """Test extraction returns 403 for age-restricted content"""
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "restricted_vid"
+        }
+        error = ExtractionError(ErrorType.RESTRICTED, "Video is age-restricted", retryable=False)
+        mock_extractor.extract_video.return_value = error
+
+        response = client.post("/api/extract", json={"url": "https://youtu.be/restricted_vid"})
+
+        assert response.status_code == 403
+        assert "forbidden" in response.json()["detail"].lower()
+
+    def test_extract_private_returns_403(self, client, mock_parser, mock_extractor):
+        """Test extraction returns 403 for private video"""
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "private_vid"
+        }
+        error = ExtractionError(ErrorType.PRIVATE, "Video is private", retryable=False)
+        mock_extractor.extract_video.return_value = error
+
+        response = client.post("/api/extract", json={"url": "https://youtu.be/private_vid"})
+
+        assert response.status_code == 403
+        assert "forbidden" in response.json()["detail"].lower()
+
+    def test_extract_connection_error_returns_400(self, client, mock_parser, mock_extractor):
+        """Test extraction returns 400 for connection errors"""
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "vid123"
+        }
+        error = ExtractionError(ErrorType.CONNECTION_ERROR, "Connection error: Connection refused", retryable=True)
+        mock_extractor.extract_video.return_value = error
+
+        response = client.post("/api/extract", json={"url": "https://youtu.be/vid123"})
+
+        assert response.status_code == 400
+        assert "extraction failed" in response.json()["detail"].lower()
 
 
 class TestJobManagement:
@@ -292,7 +398,7 @@ class TestJobManagement:
             "status": "completed",
         }
 
-        response = client.patch("/api/jobs/job123?status=completed&progress=1.0")
+        response = client.patch("/api/jobs/job123", json={"status": "completed", "progress": 100.0})
 
         assert response.status_code == 200
 
@@ -300,7 +406,7 @@ class TestJobManagement:
         """Test updating non-existent job"""
         mock_db.update_job_status.return_value = None
 
-        response = client.patch("/api/jobs/nonexistent?status=completed")
+        response = client.patch("/api/jobs/nonexistent", json={"status": "completed"})
 
         assert response.status_code == 404
 
@@ -308,7 +414,7 @@ class TestJobManagement:
         """Test updating job when database fails"""
         mock_db.update_job_status.side_effect = Exception("Database error")
 
-        response = client.patch("/api/jobs/job123?status=processing")
+        response = client.patch("/api/jobs/job123", json={"status": "processing"})
 
         assert response.status_code == 500
 
@@ -319,7 +425,7 @@ class TestJobManagement:
             {"job_id": "job2", "video_id": "vid2"}
         ]
 
-        response = client.post("/api/jobs/add-selected", json=["vid1", "vid2"])
+        response = client.post("/api/jobs/add-selected", json={"video_ids": ["vid1", "vid2"]})
 
         assert response.status_code == 200
         assert response.json()["created"] == 2
@@ -328,23 +434,22 @@ class TestJobManagement:
         """Test adding single video to queue"""
         mock_db.create_job.return_value = {"job_id": "job1", "video_id": "vid1"}
 
-        response = client.post("/api/jobs/add-selected", json=["vid1"])
+        response = client.post("/api/jobs/add-selected", json={"video_ids": ["vid1"]})
 
         assert response.status_code == 200
         assert response.json()["created"] == 1
 
     def test_add_selected_empty(self, client, mock_db):
         """Test adding empty list to queue"""
-        response = client.post("/api/jobs/add-selected", json=[])
+        response = client.post("/api/jobs/add-selected", json={"video_ids": []})
 
-        assert response.status_code == 200
-        assert response.json()["created"] == 0
+        assert response.status_code == 422
 
     def test_add_selected_error(self, client, mock_db):
         """Test adding to queue when database fails"""
         mock_db.create_job.side_effect = Exception("Database error")
 
-        response = client.post("/api/jobs/add-selected", json=["vid1"])
+        response = client.post("/api/jobs/add-selected", json={"video_ids": ["vid1"]})
 
         assert response.status_code == 500
 
@@ -442,7 +547,7 @@ class TestBoundaryConditions:
 
         for progress in [0, 50, 100]:
             mock_db.get_job.return_value["progress"] = progress
-            response = client.patch(f"/api/jobs/job-1?status=processing&progress={progress}")
+            response = client.patch("/api/jobs/job-1", json={"status": "processing", "progress": progress})
             assert response.status_code == 200
 
     def test_add_large_batch_of_jobs(self, client, mock_db):
@@ -453,7 +558,7 @@ class TestBoundaryConditions:
             "status": "pending"
         }
 
-        response = client.post("/api/jobs/add-selected", json=video_ids)
+        response = client.post("/api/jobs/add-selected", json={"video_ids": video_ids})
 
         assert response.status_code == 200
         assert response.json()["created"] == 100
@@ -491,15 +596,15 @@ class TestDataValidation:
 
     def test_job_status_values(self, client, mock_db):
         """Test all valid job status values"""
-        valid_statuses = ["pending", "processing", "completed", "failed", "cancelled"]
+        valid_statuses = ["pending", "processing", "completed", "failed"]
 
         for status in valid_statuses:
-            mock_db.update_job.return_value = {
+            mock_db.update_job_status.return_value = {
                 "job_id": "job-1",
                 "status": status
             }
 
-            response = client.patch(f"/api/jobs/job-1?status={status}")
+            response = client.patch("/api/jobs/job-1", json={"status": status})
             assert response.status_code == 200
 
     def test_job_id_uuid_format(self, client, mock_db):
@@ -566,7 +671,7 @@ class TestConcurrentOperations:
                 "progress": progress
             }
 
-            response = client.patch(f"/api/jobs/{job_id}?status={status}&progress={progress}")
+            response = client.patch(f"/api/jobs/{job_id}", json={"status": status, "progress": progress})
             assert response.status_code == 200
 
 
@@ -577,7 +682,7 @@ class TestStateTransitions:
         """Test valid transition from pending to processing"""
         mock_db.update_job_status.return_value = {"job_id": "job-1", "status": "processing", "progress": 0}
 
-        response = client.patch("/api/jobs/job-1?status=processing")
+        response = client.patch("/api/jobs/job-1", json={"status": "processing"})
 
         assert response.status_code == 200
         assert response.json()["status"] == "processing"
@@ -586,7 +691,7 @@ class TestStateTransitions:
         """Test valid transition from processing to completed"""
         mock_db.update_job_status.return_value = {"job_id": "job-1", "status": "completed", "progress": 100}
 
-        response = client.patch("/api/jobs/job-1?status=completed&progress=100")
+        response = client.patch("/api/jobs/job-1", json={"status": "completed", "progress": 100})
 
         assert response.status_code == 200
         assert response.json()["status"] == "completed"
@@ -595,7 +700,7 @@ class TestStateTransitions:
         """Test valid transition from processing to failed"""
         mock_db.update_job_status.return_value = {"job_id": "job-1", "status": "failed", "progress": 50}
 
-        response = client.patch("/api/jobs/job-1?status=failed")
+        response = client.patch("/api/jobs/job-1", json={"status": "failed"})
 
         assert response.status_code == 200
         assert response.json()["status"] == "failed"
@@ -604,7 +709,7 @@ class TestStateTransitions:
         """Test retry transition from failed back to pending"""
         mock_db.update_job_status.return_value = {"job_id": "job-1", "status": "pending", "retry_count": 1, "progress": 0}
 
-        response = client.patch("/api/jobs/job-1?status=pending")
+        response = client.patch("/api/jobs/job-1", json={"status": "pending"})
 
         assert response.status_code == 200
         assert response.json()["status"] == "pending"
@@ -693,19 +798,19 @@ class TestAdvancedIntegration:
         assert job["progress"] == 0.0
 
         # Transition: pending → processing
-        response = client.patch(f"/api/jobs/{job_id}?status=processing&progress=0")
+        response = client.patch(f"/api/jobs/{job_id}", json={"status": "processing", "progress": 0})
         assert response.status_code == 200
         job = real_db.read_job(job_id)
         assert job["status"] == "processing"
 
         # Transition: processing → processing with progress
-        response = client.patch(f"/api/jobs/{job_id}?status=processing&progress=50")
+        response = client.patch(f"/api/jobs/{job_id}", json={"status": "processing", "progress": 50})
         assert response.status_code == 200
         job = real_db.read_job(job_id)
         assert job["progress"] == 50.0
 
         # Transition: processing → completed
-        response = client.patch(f"/api/jobs/{job_id}?status=completed&progress=100")
+        response = client.patch(f"/api/jobs/{job_id}", json={"status": "completed", "progress": 100})
         assert response.status_code == 200
         job = real_db.read_job(job_id)
         assert job["status"] == "completed"
@@ -823,7 +928,7 @@ class TestAdvancedIntegration:
 
         # Create batch of videos
         video_ids = ["batch_1", "batch_2", "batch_3", "batch_4", "batch_5"]
-        response = client.post("/api/jobs/add-selected", json=video_ids)
+        response = client.post("/api/jobs/add-selected", json={"video_ids": video_ids})
 
         assert response.status_code == 200
         assert response.json()["created"] == 5
@@ -968,7 +1073,8 @@ class TestAPIIntegration:
 
         # Update job status via API
         response = client.patch(
-            "/api/jobs/persist_test_job?status=processing&progress=50.0"
+            "/api/jobs/persist_test_job",
+            json={"status": "processing", "progress": 50.0}
         )
 
         assert response.status_code == 200
@@ -1050,7 +1156,7 @@ class TestAPIIntegration:
 
         # Add multiple videos in batch via API
         video_ids = ["batch_vid_1", "batch_vid_2", "batch_vid_3"]
-        response = client.post("/api/jobs/add-selected", json=video_ids)
+        response = client.post("/api/jobs/add-selected", json={"video_ids": video_ids})
 
         assert response.status_code == 200
         assert response.json()["created"] == 3

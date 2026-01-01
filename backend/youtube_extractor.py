@@ -4,11 +4,42 @@ Extracts video, playlist, and channel metadata
 """
 import json
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
+import re
 from pathlib import Path
+from dataclasses import dataclass
+from enum import Enum
+import socket
 import yt_dlp
 
 logger = logging.getLogger(__name__)
+
+
+class ErrorType(str, Enum):
+    """Types of errors that can occur during extraction"""
+    TIMEOUT = "timeout"                       # Network timeout
+    NOT_FOUND = "not_found"                   # Video/playlist/channel not found (404)
+    PRIVATE = "private"                       # Content is private
+    DELETED = "deleted"                       # Content has been deleted
+    RESTRICTED = "age_restricted"             # Age-restricted content
+    RATE_LIMITED = "rate_limited"             # HTTP 429: Too many requests
+    FORBIDDEN = "forbidden"                   # HTTP 403: Access forbidden
+    CONNECTION_ERROR = "connection_error"     # Connection refused, reset, etc.
+    INVALID_ID = "invalid_id"                 # Invalid video/playlist ID format
+    NETWORK_ERROR = "network_error"           # General network error
+    DATA_ERROR = "data_error"                 # Malformed or incomplete data
+    UNKNOWN = "unknown"                       # Unknown error
+
+
+@dataclass
+class ExtractionError:
+    """Error information from extraction"""
+    error_type: ErrorType
+    message: str
+    retryable: bool
+
+    def __repr__(self):
+        return f"ExtractionError({self.error_type}: {self.message}, retryable={self.retryable})"
 
 
 class YouTubeExtractor:
@@ -23,7 +54,7 @@ class YouTubeExtractor:
             'skip_download': True,
         }
 
-    def extract_video(self, video_id: str) -> Optional[Dict[str, Any]]:
+    def extract_video(self, video_id: str) -> Union[Dict[str, Any], ExtractionError]:
         """
         Extract single video metadata
 
@@ -31,7 +62,7 @@ class YouTubeExtractor:
             video_id: YouTube video ID
 
         Returns:
-            Video metadata dictionary or None if failed
+            Video metadata dictionary or ExtractionError if failed
         """
         url = f"https://www.youtube.com/watch?v={video_id}"
 
@@ -54,11 +85,41 @@ class YouTubeExtractor:
             logger.info(f"✓ Extracted video: {video_data['title']} ({video_id})")
             return video_data
 
+        except socket.timeout:
+            error = ExtractionError(ErrorType.TIMEOUT, "Network request timed out", retryable=True)
+            logger.error(f"✗ {error}")
+            return error
+        except socket.error as e:
+            error = ExtractionError(ErrorType.CONNECTION_ERROR, f"Connection error: {str(e)}", retryable=True)
+            logger.error(f"✗ {error}")
+            return error
         except Exception as e:
-            logger.error(f"✗ Failed to extract video {video_id}: {str(e)}")
-            return None
+            error_msg = str(e).lower()
 
-    def extract_playlist(self, playlist_id: str) -> Optional[Dict[str, Any]]:
+            # Classify error based on message content
+            if "video not found" in error_msg or "404" in error_msg:
+                error = ExtractionError(ErrorType.NOT_FOUND, f"Video not found: {video_id}", retryable=False)
+            elif "private video" in error_msg or "private" in error_msg:
+                error = ExtractionError(ErrorType.PRIVATE, "Video is private", retryable=False)
+            elif "has been removed" in error_msg or "deleted" in error_msg:
+                error = ExtractionError(ErrorType.DELETED, "Video has been deleted", retryable=False)
+            elif "age restricted" in error_msg or "age-restricted" in error_msg:
+                error = ExtractionError(ErrorType.RESTRICTED, "Video is age-restricted", retryable=False)
+            elif "429" in error_msg or "rate limit" in error_msg:
+                error = ExtractionError(ErrorType.RATE_LIMITED, "Rate limited by YouTube", retryable=True)
+            elif "403" in error_msg or "forbidden" in error_msg:
+                error = ExtractionError(ErrorType.FORBIDDEN, "Access forbidden", retryable=False)
+            elif "invalid" in error_msg and "id" in error_msg:
+                error = ExtractionError(ErrorType.INVALID_ID, f"Invalid video ID: {video_id}", retryable=False)
+            elif isinstance(e, (json.JSONDecodeError, ValueError)):
+                error = ExtractionError(ErrorType.DATA_ERROR, f"Malformed data: {str(e)}", retryable=False)
+            else:
+                error = ExtractionError(ErrorType.UNKNOWN, f"Unknown error: {str(e)}", retryable=True)
+
+            logger.error(f"✗ {error}")
+            return error
+
+    def extract_playlist(self, playlist_id: str) -> Union[Dict[str, Any], ExtractionError]:
         """
         Extract playlist metadata and video list
 
@@ -66,7 +127,7 @@ class YouTubeExtractor:
             playlist_id: YouTube playlist ID
 
         Returns:
-            Playlist metadata with video list or None if failed
+            Playlist metadata with video list or ExtractionError if failed
         """
         url = f"https://www.youtube.com/playlist?list={playlist_id}"
 
@@ -96,11 +157,39 @@ class YouTubeExtractor:
             logger.info(f"✓ Extracted playlist: {playlist_data['title']} ({len(videos)} videos)")
             return playlist_data
 
+        except socket.timeout:
+            error = ExtractionError(ErrorType.TIMEOUT, "Network request timed out", retryable=True)
+            logger.error(f"✗ {error}")
+            return error
+        except socket.error as e:
+            error = ExtractionError(ErrorType.CONNECTION_ERROR, f"Connection error: {str(e)}", retryable=True)
+            logger.error(f"✗ {error}")
+            return error
         except Exception as e:
-            logger.error(f"✗ Failed to extract playlist {playlist_id}: {str(e)}")
-            return None
+            error_msg = str(e).lower()
 
-    def extract_channel(self, channel_id: str) -> Optional[Dict[str, Any]]:
+            # Classify error based on message content
+            if "not found" in error_msg or "404" in error_msg:
+                error = ExtractionError(ErrorType.NOT_FOUND, f"Playlist not found: {playlist_id}", retryable=False)
+            elif "private" in error_msg:
+                error = ExtractionError(ErrorType.PRIVATE, "Playlist is private", retryable=False)
+            elif "has been removed" in error_msg or "deleted" in error_msg:
+                error = ExtractionError(ErrorType.DELETED, "Playlist has been deleted", retryable=False)
+            elif "429" in error_msg or "rate limit" in error_msg:
+                error = ExtractionError(ErrorType.RATE_LIMITED, "Rate limited by YouTube", retryable=True)
+            elif "403" in error_msg or "forbidden" in error_msg:
+                error = ExtractionError(ErrorType.FORBIDDEN, "Access forbidden", retryable=False)
+            elif "invalid" in error_msg and "id" in error_msg:
+                error = ExtractionError(ErrorType.INVALID_ID, f"Invalid playlist ID: {playlist_id}", retryable=False)
+            elif isinstance(e, (json.JSONDecodeError, ValueError)):
+                error = ExtractionError(ErrorType.DATA_ERROR, f"Malformed data: {str(e)}", retryable=False)
+            else:
+                error = ExtractionError(ErrorType.UNKNOWN, f"Unknown error: {str(e)}", retryable=True)
+
+            logger.error(f"✗ {error}")
+            return error
+
+    def extract_channel(self, channel_id: str) -> Union[Dict[str, Any], ExtractionError]:
         """
         Extract channel metadata and all playlists
 
@@ -108,7 +197,7 @@ class YouTubeExtractor:
             channel_id: YouTube channel ID or handle
 
         Returns:
-            Channel metadata with playlists or None if failed
+            Channel metadata with playlists or ExtractionError if failed
         """
         # Support both channel ID (UC...) and handle (@...)
         if channel_id.startswith("@"):
@@ -142,9 +231,35 @@ class YouTubeExtractor:
             logger.info(f"✓ Extracted channel: {channel_data['title']} ({len(playlists)} playlists)")
             return channel_data
 
+        except socket.timeout:
+            error = ExtractionError(ErrorType.TIMEOUT, "Network request timed out", retryable=True)
+            logger.error(f"✗ {error}")
+            return error
+        except socket.error as e:
+            error = ExtractionError(ErrorType.CONNECTION_ERROR, f"Connection error: {str(e)}", retryable=True)
+            logger.error(f"✗ {error}")
+            return error
         except Exception as e:
-            logger.error(f"✗ Failed to extract channel {channel_id}: {str(e)}")
-            return None
+            error_msg = str(e).lower()
+
+            # Classify error based on message content
+            if "not found" in error_msg or "404" in error_msg:
+                error = ExtractionError(ErrorType.NOT_FOUND, f"Channel not found: {channel_id}", retryable=False)
+            elif "suspended" in error_msg or "terminated" in error_msg:
+                error = ExtractionError(ErrorType.DELETED, "Channel has been terminated", retryable=False)
+            elif "429" in error_msg or "rate limit" in error_msg:
+                error = ExtractionError(ErrorType.RATE_LIMITED, "Rate limited by YouTube", retryable=True)
+            elif "403" in error_msg or "forbidden" in error_msg:
+                error = ExtractionError(ErrorType.FORBIDDEN, "Access forbidden", retryable=False)
+            elif "invalid" in error_msg and "id" in error_msg:
+                error = ExtractionError(ErrorType.INVALID_ID, f"Invalid channel ID: {channel_id}", retryable=False)
+            elif isinstance(e, (json.JSONDecodeError, ValueError)):
+                error = ExtractionError(ErrorType.DATA_ERROR, f"Malformed data: {str(e)}", retryable=False)
+            else:
+                error = ExtractionError(ErrorType.UNKNOWN, f"Unknown error: {str(e)}", retryable=True)
+
+            logger.error(f"✗ {error}")
+            return error
 
     def save_as_json(self, data: Dict[str, Any], filepath: str) -> bool:
         """

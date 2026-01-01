@@ -11,7 +11,7 @@ from pathlib import Path as PathlibPath
 # Add backend to path
 sys.path.insert(0, str(PathlibPath(__file__).parent.parent))
 
-from youtube_extractor import YouTubeExtractor
+from youtube_extractor import YouTubeExtractor, ExtractionError, ErrorType
 
 
 @pytest.fixture
@@ -57,7 +57,9 @@ class TestVideoExtraction:
 
         result = extractor.extract_video("invalid_id")
 
-        assert result is None
+        assert isinstance(result, ExtractionError)
+        assert result.error_type == ErrorType.UNKNOWN
+        assert result.retryable is True
 
     def test_save_video_as_json(self, extractor, temp_json_path):
         """Test saving video data as JSON"""
@@ -364,7 +366,9 @@ class TestYouTubeExtractionErrorScenarios:
 
         result = extractor.extract_video("vid_timeout")
 
-        assert result is None
+        assert isinstance(result, ExtractionError)
+        assert result.error_type == ErrorType.TIMEOUT
+        assert result.retryable is True
 
     @patch('youtube_extractor.yt_dlp.YoutubeDL')
     def test_extract_video_404_not_found(self, mock_ydl_class, extractor):
@@ -373,7 +377,9 @@ class TestYouTubeExtractionErrorScenarios:
 
         result = extractor.extract_video("vid_notfound")
 
-        assert result is None
+        assert isinstance(result, ExtractionError)
+        assert result.error_type == ErrorType.NOT_FOUND
+        assert result.retryable is False
 
     @patch('youtube_extractor.yt_dlp.YoutubeDL')
     def test_extract_video_403_age_restricted(self, mock_ydl_class, extractor):
@@ -382,7 +388,9 @@ class TestYouTubeExtractionErrorScenarios:
 
         result = extractor.extract_video("vid_agerestricted")
 
-        assert result is None
+        assert isinstance(result, ExtractionError)
+        assert result.error_type == ErrorType.RESTRICTED
+        assert result.retryable is False
 
     @patch('youtube_extractor.yt_dlp.YoutubeDL')
     def test_extract_video_429_rate_limited(self, mock_ydl_class, extractor):
@@ -391,7 +399,9 @@ class TestYouTubeExtractionErrorScenarios:
 
         result = extractor.extract_video("vid_ratelimit")
 
-        assert result is None
+        assert isinstance(result, ExtractionError)
+        assert result.error_type == ErrorType.RATE_LIMITED
+        assert result.retryable is True
 
     @patch('youtube_extractor.yt_dlp.YoutubeDL')
     def test_extract_malformed_json_response(self, mock_ydl_class, extractor):
@@ -400,7 +410,9 @@ class TestYouTubeExtractionErrorScenarios:
 
         result = extractor.extract_video("vid_malformed")
 
-        assert result is None
+        assert isinstance(result, ExtractionError)
+        assert result.error_type in (ErrorType.DATA_ERROR, ErrorType.INVALID_ID)
+        assert result.retryable is False
 
     @patch('youtube_extractor.yt_dlp.YoutubeDL')
     def test_extract_incomplete_data_structure(self, mock_ydl_class, extractor):
@@ -491,7 +503,9 @@ class TestYouTubeExtractionErrorScenarios:
 
         result = extractor.extract_video("vid_connrefused")
 
-        assert result is None
+        assert isinstance(result, ExtractionError)
+        assert result.error_type == ErrorType.CONNECTION_ERROR
+        assert result.retryable is True
 
     @patch('youtube_extractor.yt_dlp.YoutubeDL')
     def test_extract_invalid_video_id_format(self, mock_ydl_class, extractor):
@@ -500,7 +514,9 @@ class TestYouTubeExtractionErrorScenarios:
 
         result = extractor.extract_video("invalid_video_id")
 
-        assert result is None
+        assert isinstance(result, ExtractionError)
+        assert result.error_type == ErrorType.INVALID_ID
+        assert result.retryable is False
 
     @patch('youtube_extractor.yt_dlp.YoutubeDL')
     def test_extract_private_video(self, mock_ydl_class, extractor):
@@ -509,7 +525,9 @@ class TestYouTubeExtractionErrorScenarios:
 
         result = extractor.extract_video("vid_private")
 
-        assert result is None
+        assert isinstance(result, ExtractionError)
+        assert result.error_type == ErrorType.PRIVATE
+        assert result.retryable is False
 
     @patch('youtube_extractor.yt_dlp.YoutubeDL')
     def test_extract_deleted_video(self, mock_ydl_class, extractor):
@@ -518,7 +536,9 @@ class TestYouTubeExtractionErrorScenarios:
 
         result = extractor.extract_video("vid_deleted")
 
-        assert result is None
+        assert isinstance(result, ExtractionError)
+        assert result.error_type == ErrorType.DELETED
+        assert result.retryable is False
 
     @patch('youtube_extractor.yt_dlp.YoutubeDL')
     def test_extract_suspended_channel(self, mock_ydl_class, extractor):
@@ -527,7 +547,9 @@ class TestYouTubeExtractionErrorScenarios:
 
         result = extractor.extract_channel("UC_suspended")
 
-        assert result is None
+        assert isinstance(result, ExtractionError)
+        assert result.error_type == ErrorType.DELETED
+        assert result.retryable is False
 
 
 if __name__ == "__main__":
