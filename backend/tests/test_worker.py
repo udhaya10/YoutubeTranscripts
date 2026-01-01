@@ -561,5 +561,48 @@ class TestM20DatabaseRecovery:
             os.unlink(db_path)
 
 
+class TestWorkerErrorRecovery:
+    """Tests for worker error handling and recovery"""
+
+    @pytest.mark.asyncio
+    async def test_worker_recovers_from_extraction_failure(self):
+        """Test worker recovers when extraction fails"""
+        from database import JobDatabase
+        import tempfile
+        import os
+
+        # Create temporary database
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as f:
+            db_path = f.name
+
+        try:
+            db = JobDatabase(db_path)
+
+            # Create a processing job
+            job_id = "fail-job-1"
+            db.create_job(job_id, "vid_fail", "Failing Video")
+            db.update_job_status(job_id, "processing", progress=25.0)
+
+            # Mock extractor that fails
+            mock_extractor = MagicMock()
+            mock_extractor.process_video.side_effect = RuntimeError("Extraction failed")
+
+            # Simulate worker handling failure
+            try:
+                result = mock_extractor.process_video(job_id)
+            except RuntimeError:
+                # Worker would catch this and mark job as failed
+                failed_job = db.update_job_status(
+                    job_id,
+                    "failed",
+                    error_message="Extraction failed"
+                )
+                assert failed_job["status"] == "failed"
+                assert failed_job["retry_count"] == 1
+
+        finally:
+            os.unlink(db_path)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

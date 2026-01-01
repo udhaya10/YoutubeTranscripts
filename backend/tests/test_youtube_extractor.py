@@ -36,22 +36,12 @@ class TestVideoExtraction:
     """Tests for single video extraction (M7)"""
 
     @patch('youtube_extractor.yt_dlp.YoutubeDL')
-    def test_extract_video_success(self, mock_ydl_class, extractor):
+    def test_extract_video_success(self, mock_ydl_class, extractor, video_data):
         """Test successful video extraction"""
-        # Mock yt_dlp response
+        # Mock yt_dlp response with shared test data
         mock_ydl = MagicMock()
         mock_ydl_class.return_value.__enter__.return_value = mock_ydl
-        mock_ydl.extract_info.return_value = {
-            "id": "dQw4w9WgXcQ",
-            "title": "Never Gonna Give You Up",
-            "uploader": "Rick Astley",
-            "uploader_id": "RickAstleyVEVO",
-            "duration": 213,
-            "description": "The official music video",
-            "view_count": 1000000,
-            "upload_date": "2009-10-25",
-            "thumbnail": "https://example.com/thumb.jpg",
-        }
+        mock_ydl.extract_info.return_value = video_data
 
         result = extractor.extract_video("dQw4w9WgXcQ")
 
@@ -111,26 +101,18 @@ class TestPlaylistExtraction:
     """Tests for playlist extraction (M8)"""
 
     @patch('youtube_extractor.yt_dlp.YoutubeDL')
-    def test_extract_playlist_success(self, mock_ydl_class, extractor):
+    def test_extract_playlist_success(self, mock_ydl_class, extractor, playlist_data):
         """Test successful playlist extraction"""
         mock_ydl = MagicMock()
         mock_ydl_class.return_value.__enter__.return_value = mock_ydl
-        mock_ydl.extract_info.return_value = {
-            "title": "Greatest Hits",
-            "uploader": "Rick Astley",
-            "description": "Best songs",
-            "entries": [
-                {"id": "vid1", "title": "Song 1", "uploader": "Rick Astley", "duration": 200},
-                {"id": "vid2", "title": "Song 2", "uploader": "Rick Astley", "duration": 250},
-            ],
-        }
+        mock_ydl.extract_info.return_value = playlist_data
 
         result = extractor.extract_playlist("PLgreatest")
 
         assert result is not None
         assert result["title"] == "Greatest Hits"
-        assert result["video_count"] == 2
-        assert len(result["videos"]) == 2
+        assert result["video_count"] == 5
+        assert len(result["videos"]) == 5
 
     def test_save_playlist_as_json(self, extractor, temp_json_path):
         """Test saving playlist data as JSON"""
@@ -178,43 +160,31 @@ class TestChannelExtraction:
     """Tests for channel extraction (M9)"""
 
     @patch('youtube_extractor.yt_dlp.YoutubeDL')
-    def test_extract_channel_success(self, mock_ydl_class, extractor):
+    def test_extract_channel_success(self, mock_ydl_class, extractor, channel_data):
         """Test successful channel extraction"""
         mock_ydl = MagicMock()
         mock_ydl_class.return_value.__enter__.return_value = mock_ydl
-        mock_ydl.extract_info.return_value = {
-            "id": "UCuAXFkgsw1L7xaCfnd5JJOw",
-            "title": "Rick Astley",
-            "description": "Official channel",
-            "subscriber_count": 5000000,
-            "video_count": 50,
-            "entries": [
-                {"_type": "playlist", "id": "PL1", "title": "Playlist 1", "playlist_count": 10},
-                {"_type": "playlist", "id": "PL2", "title": "Playlist 2", "playlist_count": 15},
-            ],
-        }
+        mock_ydl.extract_info.return_value = channel_data
 
         result = extractor.extract_channel("UCuAXFkgsw1L7xaCfnd5JJOw")
 
         assert result is not None
-        assert result["title"] == "Rick Astley"
-        assert result["playlist_count"] == 2
+        assert result["title"] == "Google Developers"
+        assert result["playlist_count"] == 3
 
     @patch('youtube_extractor.yt_dlp.YoutubeDL')
-    def test_extract_channel_by_handle(self, mock_ydl_class, extractor):
+    def test_extract_channel_by_handle(self, mock_ydl_class, extractor, channel_data):
         """Test channel extraction by @ handle"""
         mock_ydl = MagicMock()
         mock_ydl_class.return_value.__enter__.return_value = mock_ydl
-        mock_ydl.extract_info.return_value = {
-            "id": "UCuAXFkgsw1L7xaCfnd5JJOw",
-            "title": "Rick Astley",
-            "entries": [],
-        }
+        channel_data_no_entries = channel_data.copy()
+        channel_data_no_entries["entries"] = []
+        mock_ydl.extract_info.return_value = channel_data_no_entries
 
-        result = extractor.extract_channel("@RickAstley")
+        result = extractor.extract_channel("@GoogleDevelopers")
 
         assert result is not None
-        assert result["title"] == "Rick Astley"
+        assert result["title"] == "Google Developers"
 
     def test_save_channel_as_json(self, extractor, temp_json_path):
         """Test saving channel data as JSON"""

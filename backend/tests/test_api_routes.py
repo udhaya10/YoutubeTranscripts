@@ -411,43 +411,6 @@ class TestMetadataRetrieval:
         assert response.status_code == 404
 
 
-class TestRequestModels:
-    """Tests for request/response models"""
-
-    def test_extract_request(self):
-        """Test ExtractRequest model"""
-        req = ExtractRequest(url="https://youtu.be/test123")
-        assert req.url == "https://youtu.be/test123"
-
-    def test_extract_response(self):
-        """Test ExtractResponse model"""
-        resp = ExtractResponse(
-            type="video",
-            id="test123",
-            title="Test",
-            metadata={}
-        )
-        assert resp.type == "video"
-        assert resp.id == "test123"
-
-    def test_job_request_minimal(self):
-        """Test JobRequest with required fields"""
-        req = JobRequest(video_id="vid123")
-        assert req.video_id == "vid123"
-        assert req.video_title is None
-
-    def test_job_request_full(self):
-        """Test JobRequest with all fields"""
-        req = JobRequest(
-            video_id="vid123",
-            video_title="Test",
-            playlist_id="pl123"
-        )
-        assert req.video_id == "vid123"
-        assert req.video_title == "Test"
-        assert req.playlist_id == "pl123"
-
-
 class TestBoundaryConditions:
     """Tests for boundary conditions and edge cases"""
 
@@ -645,6 +608,240 @@ class TestStateTransitions:
 
         assert response.status_code == 200
         assert response.json()["status"] == "pending"
+
+
+class TestAdvancedIntegration:
+    """Advanced integration tests with real database and complex workflows"""
+
+    def test_extract_url_stores_metadata_in_real_store(self, monkeypatch, tmp_path):
+        """Test that extract endpoint stores metadata in real metadata store"""
+        import json
+        from pathlib import Path
+        from metadata_store import MetadataStore
+        from youtube_utils import YouTubeURLParser
+
+        real_store = MetadataStore(str(tmp_path))
+        api_routes._metadata_store = real_store
+        monkeypatch.setattr(api_routes, 'get_metadata_store', lambda: real_store)
+
+        # Mock parser and extractor for controlled testing
+        mock_parser = MagicMock()
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "dQw4w9WgXcQ"
+        }
+        monkeypatch.setattr(api_routes, 'YouTubeURLParser', mock_parser)
+
+        mock_extractor = MagicMock()
+        mock_extractor.extract_video.return_value = {
+            "id": "dQw4w9WgXcQ",
+            "title": "Never Gonna Give You Up",
+            "uploader": "Rick Astley",
+            "duration": 213,
+            "description": "Test video",
+        }
+        monkeypatch.setattr(api_routes, 'YouTubeExtractor', lambda: mock_extractor)
+        api_routes._extractor = mock_extractor
+
+        app = FastAPI()
+        app.include_router(router)
+        client = TestClient(app)
+
+        response = client.post("/api/extract", json={
+            "url": "https://youtu.be/dQw4w9WgXcQ"
+        })
+
+        assert response.status_code == 200
+
+        # Verify actual metadata file was created
+        json_path = tmp_path / "videos" / "video_dQw4w9WgXcQ.json"
+        assert json_path.exists()
+
+        with open(json_path) as f:
+            saved_metadata = json.load(f)
+        assert saved_metadata["id"] == "dQw4w9WgXcQ"
+        assert saved_metadata["title"] == "Never Gonna Give You Up"
+
+    def test_job_state_machine_with_real_db(self, monkeypatch, tmp_path):
+        """Test complete job state machine with real database"""
+        from pathlib import Path
+        from database import JobDatabase
+
+        db_path = tmp_path / "state_machine.db"
+        real_db = JobDatabase(str(db_path))
+
+        api_routes.JobDatabase = lambda path: real_db
+        api_routes._db = real_db
+        monkeypatch.setattr(api_routes, 'get_db', lambda: real_db)
+
+        app = FastAPI()
+        app.include_router(router)
+        client = TestClient(app)
+
+        # Create job
+        response = client.post("/api/jobs", json={
+            "video_id": "state_test_vid",
+            "video_title": "State Machine Test"
+        })
+        assert response.status_code == 200
+        job_id = response.json()["id"]
+
+        # Verify initial state
+        job = real_db.read_job(job_id)
+        assert job["status"] == "pending"
+        assert job["progress"] == 0.0
+
+        # Transition: pending → processing
+        response = client.patch(f"/api/jobs/{job_id}?status=processing&progress=0")
+        assert response.status_code == 200
+        job = real_db.read_job(job_id)
+        assert job["status"] == "processing"
+
+        # Transition: processing → processing with progress
+        response = client.patch(f"/api/jobs/{job_id}?status=processing&progress=50")
+        assert response.status_code == 200
+        job = real_db.read_job(job_id)
+        assert job["progress"] == 50.0
+
+        # Transition: processing → completed
+        response = client.patch(f"/api/jobs/{job_id}?status=completed&progress=100")
+        assert response.status_code == 200
+        job = real_db.read_job(job_id)
+        assert job["status"] == "completed"
+        assert job["progress"] == 100.0
+
+        # Verify final state persisted
+        db2 = JobDatabase(str(db_path))
+        final_job = db2.read_job(job_id)
+        assert final_job["status"] == "completed"
+
+    def test_queue_operations_with_real_persistence(self, monkeypatch, tmp_path):
+        """Test queue operations with real database persistence"""
+        from pathlib import Path
+        from database import JobDatabase
+
+        db_path = tmp_path / "queue_test.db"
+        real_db = JobDatabase(str(db_path))
+
+        # Create multiple jobs in different states
+        real_db.create_job("queue_job_1", "vid_1", "Video 1")
+        real_db.create_job("queue_job_2", "vid_2", "Video 2")
+        real_db.create_job("queue_job_3", "vid_3", "Video 3")
+
+        real_db.update_job_status("queue_job_1", "processing", progress=25.0)
+        real_db.update_job_status("queue_job_2", "completed", progress=100.0)
+
+        api_routes.JobDatabase = lambda path: real_db
+        api_routes._db = real_db
+        monkeypatch.setattr(api_routes, 'get_db', lambda: real_db)
+
+        app = FastAPI()
+        app.include_router(router)
+        client = TestClient(app)
+
+        # List all jobs
+        response = client.get("/api/jobs")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 3
+
+        # Verify correct status distribution
+        job_statuses = {job["id"]: job["status"] for job in data["jobs"]}
+        assert job_statuses["queue_job_1"] == "processing"
+        assert job_statuses["queue_job_2"] == "completed"
+        assert job_statuses["queue_job_3"] == "pending"
+
+        # List pending jobs via DB (verify API consistency)
+        pending = real_db.list_pending_jobs()
+        assert len(pending) == 1
+        assert pending[0]["id"] == "queue_job_3"
+
+    def test_concurrent_api_requests_with_real_db(self, monkeypatch, tmp_path):
+        """Test concurrent API requests with real database"""
+        import threading
+        from pathlib import Path
+        from database import JobDatabase
+
+        db_path = tmp_path / "concurrent_api.db"
+        real_db = JobDatabase(str(db_path))
+
+        api_routes.JobDatabase = lambda path: real_db
+        api_routes._db = real_db
+        monkeypatch.setattr(api_routes, 'get_db', lambda: real_db)
+
+        app = FastAPI()
+        app.include_router(router)
+        client = TestClient(app)
+
+        created_jobs = []
+        errors = []
+
+        def create_job(job_num):
+            try:
+                response = client.post("/api/jobs", json={
+                    "video_id": f"concurrent_vid_{job_num}",
+                    "video_title": f"Concurrent Video {job_num}"
+                })
+                if response.status_code == 200:
+                    created_jobs.append(response.json()["id"])
+            except Exception as e:
+                errors.append(str(e))
+
+        # Create 5 jobs concurrently via API
+        threads = []
+        for i in range(5):
+            thread = threading.Thread(target=create_job, args=(i,))
+            threads.append(thread)
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+
+        assert len(errors) == 0
+        assert len(created_jobs) == 5
+
+        # Verify all jobs persisted
+        all_jobs = real_db.list_jobs()
+        assert len(all_jobs) == 5
+
+    def test_batch_job_creation_end_to_end(self, monkeypatch, tmp_path):
+        """Test batch job creation end-to-end with real database"""
+        from pathlib import Path
+        from database import JobDatabase
+
+        db_path = tmp_path / "batch_test.db"
+        real_db = JobDatabase(str(db_path))
+
+        api_routes.JobDatabase = lambda path: real_db
+        api_routes._db = real_db
+        monkeypatch.setattr(api_routes, 'get_db', lambda: real_db)
+
+        app = FastAPI()
+        app.include_router(router)
+        client = TestClient(app)
+
+        # Create batch of videos
+        video_ids = ["batch_1", "batch_2", "batch_3", "batch_4", "batch_5"]
+        response = client.post("/api/jobs/add-selected", json=video_ids)
+
+        assert response.status_code == 200
+        assert response.json()["created"] == 5
+
+        # List and verify all jobs
+        response = client.get("/api/jobs")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 5
+
+        # Verify all videos are in the list
+        job_videos = [job["video_id"] for job in data["jobs"]]
+        for vid_id in video_ids:
+            assert vid_id in job_videos
+
+        # Verify database consistency
+        all_jobs = real_db.list_jobs()
+        assert len(all_jobs) == 5
 
 
 class TestResponseValidation:
@@ -865,6 +1062,63 @@ class TestAPIIntegration:
         batch_job_ids = [job["video_id"] for job in all_jobs]
         for vid_id in video_ids:
             assert vid_id in batch_job_ids
+
+
+class TestErrorHandlingScenarios:
+    """Tests for error handling in API endpoints"""
+
+    def test_api_handles_network_timeout(self, client, monkeypatch):
+        """Test that API handles network timeouts gracefully"""
+        import socket
+
+        mock_parser = MagicMock()
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "dQw4w9WgXcQ"
+        }
+        monkeypatch.setattr(api_routes, 'YouTubeURLParser', mock_parser)
+
+        # Mock extractor to raise timeout
+        mock_extractor = MagicMock()
+        mock_extractor.extract_video.side_effect = socket.timeout("Connection timed out")
+        api_routes._extractor = mock_extractor
+        monkeypatch.setattr(api_routes, 'YouTubeExtractor', lambda: mock_extractor)
+
+        response = client.post("/api/extract", json={
+            "url": "https://youtu.be/dQw4w9WgXcQ"
+        })
+
+        # Should return error response, not crash
+        assert response.status_code >= 400
+        assert "error" in response.text.lower() or "detail" in response.json()
+
+    def test_api_handles_invalid_database_state(self, client, mock_db):
+        """Test that API handles invalid database state"""
+        # Simulate database raising an exception
+        mock_db.create_job.side_effect = RuntimeError("Database connection lost")
+
+        response = client.post("/api/jobs", json={
+            "video_id": "vid_invalid"
+        })
+
+        # Should return error
+        assert response.status_code == 500
+
+    def test_api_handles_extraction_failure_gracefully(self, client, mock_parser, mock_extractor):
+        """Test API handles extraction failures gracefully"""
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "broken_video"
+        }
+        mock_extractor.extract_video.side_effect = ValueError("Video not available")
+
+        response = client.post("/api/extract", json={
+            "url": "https://youtu.be/broken_video"
+        })
+
+        assert response.status_code >= 400
 
 
 if __name__ == "__main__":

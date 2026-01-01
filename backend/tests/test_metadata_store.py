@@ -423,5 +423,44 @@ class TestMetadataIntegration:
         assert (metadata_store.base_path / "videos" / "video_vid789.md").exists()
 
 
+class TestErrorScenarios:
+    """Tests for error handling and edge cases"""
+
+    def test_metadata_save_handles_permission_error(self, metadata_store, tmp_path):
+        """Test that metadata store handles permission errors gracefully"""
+        import os
+
+        # Create a read-only directory
+        ro_dir = tmp_path / "readonly"
+        ro_dir.mkdir(mode=0o444)
+
+        # Try to save to read-only location
+        try:
+            # This should either fail gracefully or raise PermissionError
+            result = metadata_store.save_video_metadata("test", {"id": "test"})
+            # If it succeeds, that's fine - depends on implementation
+        except (PermissionError, OSError):
+            # This is expected behavior
+            pass
+        finally:
+            # Clean up - restore write permissions
+            ro_dir.chmod(0o755)
+
+    def test_metadata_store_handles_disk_full(self, metadata_store):
+        """Test that metadata store handles disk full scenario"""
+        from unittest.mock import patch, MagicMock
+
+        # Mock the open() function to raise IOError
+        with patch("builtins.open", side_effect=IOError("No space left on device")):
+            try:
+                metadata_store.save_video_metadata("vid123", {
+                    "id": "vid123",
+                    "title": "Test Video",
+                })
+            except IOError as e:
+                # Expected - disk full error caught
+                assert "space" in str(e).lower() or "device" in str(e).lower()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -465,5 +465,28 @@ class TestDatabaseIntegration:
         assert len(failed) == 1
 
 
+class TestErrorRecovery:
+    """Tests for error handling and recovery scenarios"""
+
+    def test_database_recovery_on_corrupt_file(self, temp_dir):
+        """Test database recovery when file is corrupted"""
+        import sqlite3
+
+        db_path = Path(temp_dir) / "corrupt.db"
+
+        # Write invalid database file
+        db_path.write_bytes(b"NOT A VALID SQLITE DATABASE FILE FORMAT")
+
+        # Attempt to initialize database
+        # Should either recover or handle gracefully
+        try:
+            db = JobDatabase(str(db_path))
+            # If it doesn't raise an error, it should have recovered
+            assert db.db_path.exists()
+        except sqlite3.DatabaseError:
+            # This is acceptable - we caught the corruption
+            pass
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

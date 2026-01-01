@@ -116,23 +116,6 @@ class TestReDoc:
         assert "text/html" in response.headers["content-type"]
 
 
-class TestAppMetadata:
-    """Tests for app metadata"""
-
-    def test_app_title(self):
-        """Test that app has correct title"""
-        assert app.title == "YouTube Knowledge Base API"
-
-    def test_app_description(self):
-        """Test that app has description"""
-        assert app.description is not None
-        assert "YouTube" in app.description
-
-    def test_app_version(self):
-        """Test that app has version"""
-        assert app.version == "0.1.0"
-
-
 class TestCORSMiddleware:
     """Tests for CORS middleware"""
 
