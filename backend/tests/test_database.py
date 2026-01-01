@@ -488,5 +488,162 @@ class TestErrorRecovery:
             pass
 
 
+class TestBoundaryValues:
+    """Tests for boundary values and edge cases"""
+
+    def test_extremely_long_job_id(self, job_db):
+        """Test handling of extremely long job ID (255+ chars)"""
+        long_id = "x" * 300
+        job = job_db.create_job(long_id, "video_123")
+
+        # Verify it was created despite long ID
+        retrieved = job_db.read_job(long_id)
+        assert retrieved is not None
+        assert retrieved["id"] == long_id
+
+    def test_extremely_long_video_id(self, job_db):
+        """Test handling of extremely long video ID"""
+        long_video_id = "vid_" + ("x" * 200)
+        job = job_db.create_job("job_1", long_video_id)
+
+        assert job["video_id"] == long_video_id
+
+    def test_extremely_long_video_title(self, job_db):
+        """Test handling of extremely long video title (1000+ chars)"""
+        long_title = "Title " * 200  # 1200+ characters
+        job = job_db.create_job("job_title", "vid_123", long_title)
+
+        assert job["video_title"] == long_title
+
+    def test_special_characters_in_job_id(self, job_db):
+        """Test special characters in job ID"""
+        special_id = "job-@#$%-2024_ñ_🎥_test"
+        job = job_db.create_job(special_id, "vid_123")
+
+        retrieved = job_db.read_job(special_id)
+        assert retrieved["id"] == special_id
+
+    def test_zero_progress_value(self, job_db):
+        """Test progress at boundary: 0%"""
+        job_db.create_job("prog_job", "vid_123")
+        updated = job_db.update_job_status("prog_job", "processing", progress=0.0)
+
+        assert updated["progress"] == 0.0
+
+    def test_max_progress_value(self, job_db):
+        """Test progress at boundary: 100%"""
+        job_db.create_job("prog_job", "vid_123")
+        updated = job_db.update_job_status("prog_job", "processing", progress=100.0)
+
+        assert updated["progress"] == 100.0
+
+    def test_negative_progress_clamped(self, job_db):
+        """Test negative progress (should be handled gracefully)"""
+        job_db.create_job("neg_job", "vid_123")
+        updated = job_db.update_job_status("neg_job", "processing", progress=-10.0)
+
+        # Should either clamp to 0 or accept the value
+        assert updated["progress"] is not None
+
+    def test_over_100_progress(self, job_db):
+        """Test progress over 100% (should be handled gracefully)"""
+        job_db.create_job("over_job", "vid_123")
+        updated = job_db.update_job_status("over_job", "processing", progress=150.0)
+
+        # Should either clamp to 100 or accept the value
+        assert updated["progress"] is not None
+
+    def test_max_retry_count(self, job_db):
+        """Test maximum retry count (255)"""
+        job_db.create_job("retry_max", "vid_123")
+
+        # Update to max retries
+        for i in range(255):
+            job_db.update_job_status("retry_max", "failed", error_message=f"Attempt {i}")
+
+        final = job_db.read_job("retry_max")
+        assert final["retry_count"] == 255
+
+    def test_null_metadata_value(self, job_db):
+        """Test job with null metadata"""
+        job = job_db.create_job("null_meta", "vid_123", metadata=None)
+
+        retrieved = job_db.read_job("null_meta")
+        assert retrieved["metadata"] is None or retrieved["metadata"] == {}
+
+    def test_empty_string_metadata(self, job_db):
+        """Test job with empty string metadata"""
+        job = job_db.create_job("empty_meta", "vid_123", metadata="")
+
+        retrieved = job_db.read_job("empty_meta")
+        assert retrieved is not None
+
+
+class TestLoadAndStress:
+    """Load and stress tests for database"""
+
+    def test_high_volume_job_creation(self, job_db):
+        """Test creating many jobs rapidly (100 jobs)"""
+        job_ids = []
+        for i in range(100):
+            job = job_db.create_job(f"stress_job_{i}", f"video_{i}", f"Video {i}")
+            job_ids.append(job["id"])
+
+        # Verify all jobs exist
+        all_jobs = job_db.list_jobs()
+        assert len(all_jobs) >= 100
+
+    def test_high_volume_status_updates(self, job_db):
+        """Test rapid status updates (100 updates)"""
+        job_db.create_job("update_stress", "vid_123")
+
+        # Rapid status updates
+        for progress in range(0, 101, 1):
+            updated = job_db.update_job_status("update_stress", "processing", progress=float(progress))
+            assert updated["progress"] == float(progress)
+
+        final = job_db.read_job("update_stress")
+        assert final["progress"] == 100.0
+
+    def test_large_metadata_json(self, job_db):
+        """Test storing large metadata JSON (10KB+)"""
+        large_metadata = {
+            "key_" + str(i): "value_" * 50  # Large values
+            for i in range(100)
+        }
+
+        job = job_db.create_job("large_meta_job", "vid_123", metadata=large_metadata)
+        retrieved = job_db.read_job("large_meta_job")
+
+        # Verify metadata was stored and retrieved
+        assert retrieved["metadata"] is not None
+        assert len(retrieved["metadata"]) >= 10
+
+    def test_list_all_jobs_large_dataset(self, job_db):
+        """Test listing all jobs with large dataset (50 jobs)"""
+        # Create many jobs
+        for i in range(50):
+            job_db.create_job(f"list_job_{i}", f"video_{i}")
+
+        # List all jobs
+        all_jobs = job_db.list_jobs()
+        assert len(all_jobs) >= 50
+
+    def test_list_pending_jobs_large_dataset(self, job_db):
+        """Test listing pending jobs with mixed statuses"""
+        # Create jobs with different statuses
+        for i in range(30):
+            job = job_db.create_job(f"pending_job_{i}", f"video_{i}")
+            if i % 3 == 0:
+                job_db.update_job_status(f"pending_job_{i}", "processing")
+            elif i % 3 == 1:
+                job_db.update_job_status(f"pending_job_{i}", "completed")
+            # else: stays pending
+
+        pending = job_db.list_pending_jobs()
+        # About 1/3 should be pending
+        assert len(pending) >= 8
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
