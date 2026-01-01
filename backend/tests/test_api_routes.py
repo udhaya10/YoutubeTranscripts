@@ -1204,5 +1204,154 @@ class TestErrorHandlingScenarios:
         assert response.status_code in [200, 400, 500]
 
 
+class TestEndToEndWorkflows:
+    """End-to-end integration tests for complete workflows"""
+
+    def test_e2e_extract_video_and_create_job(self, client, mock_parser, mock_extractor, mock_db, mock_metadata_store):
+        """Test complete workflow: extract video URL and create job"""
+        # Step 1: Parse URL
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "dQw4w9WgXcQ"
+        }
+
+        # Step 2: Extract metadata
+        mock_extractor.extract_video.return_value = {
+            "id": "dQw4w9WgXcQ",
+            "title": "Never Gonna Give You Up",
+            "uploader": "Rick Astley",
+            "duration": 213,
+        }
+
+        # Step 3: Save metadata
+        mock_metadata_store.save_video_metadata.return_value = {
+            "json": "/app/metadata/videos/video_dQw4w9WgXcQ.json",
+            "markdown": "/app/metadata/videos/video_dQw4w9WgXcQ.md"
+        }
+
+        # Step 4: Create job
+        mock_db.create_job.return_value = {
+            "id": "job-1",
+            "video_id": "dQw4w9WgXcQ",
+            "status": "pending",
+        }
+
+        response = client.post("/api/extract", json={
+            "url": "https://youtu.be/dQw4w9WgXcQ"
+        })
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == "dQw4w9WgXcQ"
+
+    def test_e2e_create_and_list_multiple_jobs(self, client, mock_db):
+        """Test complete workflow: create multiple jobs and list them"""
+        # Create jobs
+        job1 = {"id": "job-1", "video_id": "vid-1", "status": "pending"}
+        job2 = {"id": "job-2", "video_id": "vid-2", "status": "processing"}
+        job3 = {"id": "job-3", "video_id": "vid-3", "status": "completed"}
+
+        # Step 1-3: Create jobs
+        mock_db.create_job.return_value = job1
+        response = client.post("/api/jobs", json={"video_id": "vid-1"})
+        assert response.status_code == 200
+
+        mock_db.create_job.return_value = job2
+        response = client.post("/api/jobs", json={"video_id": "vid-2"})
+        assert response.status_code == 200
+
+        mock_db.create_job.return_value = job3
+        response = client.post("/api/jobs", json={"video_id": "vid-3"})
+        assert response.status_code == 200
+
+        # Step 4: List all jobs
+        mock_db.list_jobs.return_value = [job1, job2, job3]
+        response = client.get("/api/jobs")
+        assert response.status_code == 200
+
+    def test_e2e_get_and_retrieve_job(self, client, mock_db):
+        """Test complete workflow: create and retrieve job"""
+        job_id = "job-1"
+
+        # Step 1: Create job
+        job = {"id": job_id, "video_id": "vid-1", "status": "pending"}
+        mock_db.create_job.return_value = job
+        response = client.post("/api/jobs", json={"video_id": "vid-1"})
+        assert response.status_code == 200
+
+        # Step 2: Retrieve job
+        mock_db.read_job.return_value = job
+        response = client.get(f"/api/jobs/{job_id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == job_id
+
+    def test_e2e_extract_playlist(self, client, mock_parser, mock_extractor, mock_metadata_store):
+        """Test complete workflow: extract playlist"""
+        # Step 1: Parse URL
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "playlist",
+            "id": "PLxxxxx"
+        }
+
+        # Step 2: Extract playlist
+        playlist_data = {
+            "id": "PLxxxxx",
+            "title": "Greatest Hits",
+            "video_count": 3,
+        }
+        mock_extractor.extract_playlist.return_value = playlist_data
+
+        # Step 3: Save metadata
+        mock_metadata_store.save_playlist_metadata.return_value = {
+            "json": "/app/metadata/playlists/playlist_PLxxxxx.json",
+            "markdown": "/app/metadata/playlists/playlist_PLxxxxx.md"
+        }
+
+        # Extract playlist
+        response = client.post("/api/extract", json={
+            "url": "https://youtube.com/playlist?list=PLxxxxx"
+        })
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == "PLxxxxx"
+        assert data["title"] == "Greatest Hits"
+
+    def test_e2e_extract_channel(self, client, mock_parser, mock_extractor, mock_metadata_store):
+        """Test complete workflow: extract channel"""
+        # Step 1: Parse URL
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "channel",
+            "id": "UC_x5XG1OV2P6uZZ5FSM9Ttw"
+        }
+
+        # Step 2: Extract channel
+        channel_data = {
+            "id": "UC_x5XG1OV2P6uZZ5FSM9Ttw",
+            "title": "Google Developers",
+            "video_count": 500,
+        }
+        mock_extractor.extract_channel.return_value = channel_data
+
+        # Step 3: Save metadata
+        mock_metadata_store.save_channel_metadata.return_value = {
+            "json": "/app/metadata/channels/channel_UC_x5XG1OV2P6uZZ5FSM9Ttw.json",
+            "markdown": "/app/metadata/channels/channel_UC_x5XG1OV2P6uZZ5FSM9Ttw.md"
+        }
+
+        # Extract channel
+        response = client.post("/api/extract", json={
+            "url": "https://youtube.com/@GoogleDevelopers"
+        })
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == "UC_x5XG1OV2P6uZZ5FSM9Ttw"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
