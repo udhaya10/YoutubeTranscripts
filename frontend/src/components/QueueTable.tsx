@@ -24,6 +24,7 @@ interface QueueTableProps {
   onCancel?: (jobIds: string[]) => void
   onDelete?: (jobIds: string[]) => void
   onDeleteSingle?: (jobId: string) => void
+  onView?: (jobId: string) => void
   isLoading?: boolean
 }
 
@@ -35,6 +36,7 @@ export function QueueTable({
   onCancel,
   onDelete,
   onDeleteSingle,
+  onView,
   isLoading = false,
 }: QueueTableProps) {
   const allSelected = jobs.length > 0 && jobs.every((job) => selectedJobs.includes(job.id))
@@ -157,11 +159,11 @@ export function QueueTable({
                 {formatDate(job.created_at)}
               </TableCell>
               <TableCell className="text-right space-x-1">
-                {job.status === 'completed' && (
+                {job.status === 'completed' && onView && (
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => window.open(`/files/${job.id}`, '_blank')}
+                    onClick={() => onView(job.id)}
                     disabled={isLoading}
                     className="text-xs"
                   >

@@ -9,6 +9,7 @@ import { BrowseBreadcrumb } from './components/BrowseBreadcrumb'
 import { BrowseTable } from './components/BrowseTable'
 import { QueueTable } from './components/QueueTable'
 import { MetadataDisplay } from './components/MetadataDisplay'
+import { TranscriptViewer } from './components/TranscriptViewer'
 import { useQueueWebSocket } from './hooks/useQueueWebSocket'
 import { apiClient, Job } from './api'
 
@@ -39,6 +40,7 @@ function App() {
   const [selectedQueueJobs, setSelectedQueueJobs] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [viewingJobId, setViewingJobId] = useState<string | null>(null)
 
   // WebSocket for real-time job updates
   const handleJobUpdateFromWebSocket = useCallback((updatedJob: Job) => {
@@ -264,10 +266,20 @@ function App() {
             onSelectionChange={setSelectedQueueJobs}
             onDeleteSingle={handleDeleteJob}
             onDelete={handleDeleteMultipleJobs}
+            onView={setViewingJobId}
             isLoading={isLoading}
           />
         </section>
       </main>
+
+      {/* Transcript Viewer Modal */}
+      {viewingJobId && (
+        <TranscriptViewer
+          jobId={viewingJobId}
+          videoTitle={jobs.find((j) => j.id === viewingJobId)?.video_title || 'Transcript'}
+          onClose={() => setViewingJobId(null)}
+        />
+      )}
 
       <footer className="border-t border-muted bg-card mt-12 py-4">
         <div className="container mx-auto px-4 text-center text-xs text-muted-foreground">

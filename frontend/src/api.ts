@@ -141,6 +141,15 @@ class APIClient {
     return this.request(`/metadata/channel/${channelId}`)
   }
 
+  // File retrieval
+  async getTranscript(jobId: string): Promise<{ content: string; filename: string }> {
+    return this.request(`/files/${jobId}/transcript`)
+  }
+
+  async getMetadata(jobId: string): Promise<{ content: any; filename: string }> {
+    return this.request(`/files/${jobId}/metadata`)
+  }
+
   // WebSocket for real-time updates
   connectWebSocket(
     onMessage: (data: any) => void,

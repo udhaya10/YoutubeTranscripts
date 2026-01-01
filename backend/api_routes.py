@@ -387,3 +387,75 @@ async def get_video_metadata(video_id: str):
     if not data:
         raise HTTPException(status_code=404, detail="Video metadata not found")
     return data
+
+
+# M27: File serving endpoints for transcripts
+@router.get("/files/{job_id}/transcript")
+async def get_transcript(job_id: str):
+    """Get transcript file (markdown) for a completed job"""
+    try:
+        if not job_id or len(job_id) > 100:
+            raise HTTPException(status_code=400, detail="Invalid job ID format")
+
+        db = get_db()
+        job = db.read_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        output_paths = job.get("output_paths")
+        if not output_paths or not output_paths.get("transcript_md"):
+            raise HTTPException(status_code=404, detail="Transcript not found for this job")
+
+        transcript_path = output_paths["transcript_md"]
+
+        # Verify file exists and read it
+        import os
+        if not os.path.exists(transcript_path):
+            raise HTTPException(status_code=404, detail="Transcript file not found on disk")
+
+        with open(transcript_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        return {"content": content, "filename": os.path.basename(transcript_path)}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reading transcript for job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/files/{job_id}/metadata")
+async def get_job_metadata(job_id: str):
+    """Get metadata file (JSON) for a completed job"""
+    try:
+        if not job_id or len(job_id) > 100:
+            raise HTTPException(status_code=400, detail="Invalid job ID format")
+
+        db = get_db()
+        job = db.read_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        output_paths = job.get("output_paths")
+        if not output_paths or not output_paths.get("transcript_json"):
+            raise HTTPException(status_code=404, detail="Metadata not found for this job")
+
+        metadata_path = output_paths["transcript_json"]
+
+        # Verify file exists and read it
+        import os
+        import json
+        if not os.path.exists(metadata_path):
+            raise HTTPException(status_code=404, detail="Metadata file not found on disk")
+
+        with open(metadata_path, 'r', encoding='utf-8') as f:
+            content = json.load(f)
+
+        return {"content": content, "filename": os.path.basename(metadata_path)}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reading metadata for job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
