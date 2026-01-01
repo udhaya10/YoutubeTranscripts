@@ -25,7 +25,7 @@ function App() {
   const [error, setError] = useState<string | null>(null)
 
   // Handle real-time job updates from WebSocket (M19)
-  const handleJobUpdate = useCallback((updatedJob: Job) => {
+  const handleJobUpdateFromWebSocket = useCallback((updatedJob: Job) => {
     setJobs((prevJobs) =>
       prevJobs.map((job) =>
         job.id === updatedJob.id ? updatedJob : job
@@ -34,7 +34,7 @@ function App() {
   }, [])
 
   // Connect to WebSocket for real-time updates
-  const { isConnected } = useQueueWebSocket(handleJobUpdate)
+  const { isConnected } = useQueueWebSocket(handleJobUpdateFromWebSocket)
 
   // Load jobs on mount
   useEffect(() => {
@@ -84,15 +84,30 @@ function App() {
   }
 
   const buildTreeFromResult = (result: any): TreeNode => {
-    // This is a placeholder implementation
-    // In real usage, this would construct the tree based on API response
-    return {
-      id: result.id,
-      type: result.type,
-      title: result.title || 'Unknown',
-      count: result.metadata?.count,
-      children: [],
+    const buildNode = (item: any, itemType: 'channel' | 'playlist' | 'video'): TreeNode => {
+      const node: TreeNode = {
+        id: item.id || item.channel_id || item.playlist_id || item.video_id,
+        type: itemType,
+        title: item.title || item.name || item.video_title || 'Unknown',
+        count: item.video_count || item.count,
+        children: [],
+      }
+
+      // Recursively build children based on item type
+      if (itemType === 'channel' && item.playlists) {
+        node.children = item.playlists.map((playlist: any) =>
+          buildNode(playlist, 'playlist')
+        )
+      } else if (itemType === 'playlist' && item.videos) {
+        node.children = item.videos.map((video: any) =>
+          buildNode(video, 'video')
+        )
+      }
+
+      return node
     }
+
+    return buildNode(result, result.type)
   }
 
   const handleAddToQueue = async () => {

@@ -2,7 +2,7 @@
  * API client for communicating with the backend
  */
 
-const API_BASE_URL = (typeof window !== 'undefined' && (window as any).REACT_APP_API_URL) || 'http://localhost:8000/api'
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
 export interface HealthResponse {
   status: string
@@ -101,20 +101,16 @@ class APIClient {
     status: string,
     progress?: number
   ): Promise<Job> {
-    const params = new URLSearchParams()
-    params.append('status', status)
-    if (progress !== undefined) {
-      params.append('progress', progress.toString())
-    }
-    return this.request(`/jobs/${jobId}?${params}`, {
+    return this.request(`/jobs/${jobId}`, {
       method: 'PATCH',
+      body: JSON.stringify({ status, progress }),
     })
   }
 
   async addJobsToQueue(videoIds: string[]): Promise<{ created: number; jobs: Job[] }> {
     return this.request('/jobs/add-selected', {
       method: 'POST',
-      body: JSON.stringify(videoIds),
+      body: JSON.stringify({ video_ids: videoIds }),
     })
   }
 
@@ -144,9 +140,8 @@ class APIClient {
     onMessage: (data: any) => void,
     onError?: (error: Event) => void
   ): WebSocket {
-    const wsUrl = this.baseUrl
-      .replace('http://', 'ws://')
-      .replace('https://', 'wss://')
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${protocol}//${window.location.host}/ws/queue`
     const ws = new WebSocket(wsUrl)
 
     ws.onmessage = (event) => {
