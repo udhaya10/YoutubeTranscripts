@@ -1,11 +1,14 @@
 /**
  * Main App component - YouTube Knowledge Base Web Application
+ * M26: Refactored with new shadcn/ui components and redesigned UI
  */
 import { useState, useEffect, useCallback } from 'react'
 import { Header } from './components/Header'
 import { URLInput } from './components/URLInput'
-import { MetadataTree } from './components/MetadataTree'
-import { QueuePanel } from './components/QueuePanel'
+import { BrowseBreadcrumb } from './components/BrowseBreadcrumb'
+import { BrowseTable } from './components/BrowseTable'
+import { QueueTable } from './components/QueueTable'
+import { MetadataDisplay } from './components/MetadataDisplay'
 import { useQueueWebSocket } from './hooks/useQueueWebSocket'
 import { apiClient, Job } from './api'
 
@@ -15,16 +18,29 @@ interface TreeNode {
   title: string
   count?: number
   children?: TreeNode[]
+  uploader?: string
+  duration?: number
+  description?: string
+}
+
+interface BreadcrumbItem {
+  id: string
+  title: string
+  type: 'channel' | 'playlist' | 'video'
+  data?: any
 }
 
 function App() {
   const [jobs, setJobs] = useState<Job[]>([])
-  const [treeData, setTreeData] = useState<TreeNode | null>(null)
-  const [selectedNodes, setSelectedNodes] = useState<string[]>([])
+  const [currentData, setCurrentData] = useState<TreeNode | null>(null)
+  const [breadcrumbPath, setBreadcrumbPath] = useState<BreadcrumbItem[]>([])
+  const [currentItems, setCurrentItems] = useState<any[]>([])
+  const [selectedBrowseItems, setSelectedBrowseItems] = useState<string[]>([])
+  const [selectedQueueJobs, setSelectedQueueJobs] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Handle real-time job updates from WebSocket (M19)
+  // WebSocket for real-time job updates
   const handleJobUpdateFromWebSocket = useCallback((updatedJob: Job) => {
     setJobs((prevJobs) =>
       prevJobs.map((job) =>
@@ -33,17 +49,12 @@ function App() {
     )
   }, [])
 
-  // Connect to WebSocket for real-time updates
   const { isConnected } = useQueueWebSocket(handleJobUpdateFromWebSocket)
 
-  // Load jobs on mount and set up polling as fallback
+  // Load jobs on mount and polling
   useEffect(() => {
     loadJobs()
-
-    // Poll for job updates every 3 seconds as fallback
-    // WebSocket provides real-time updates, but polling ensures UI stays synced
     const pollInterval = setInterval(loadJobs, 3000)
-
     return () => clearInterval(pollInterval)
   }, [])
 
@@ -57,94 +68,92 @@ function App() {
     }
   }
 
-  const handleJobUpdate = async (jobId: string, status: string) => {
-    try {
-      await apiClient.updateJobStatus(jobId, status)
-      await loadJobs()
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to update job'
-      setError(message)
-      console.error('Job update error:', err)
-    }
+  const buildTreeFromResult = (result: any): TreeNode => {
+    const buildNode = (item: any, itemType: 'channel' | 'playlist' | 'video'): TreeNode => ({
+      id: item.id || item.channel_id || item.playlist_id || item.video_id,
+      type: itemType,
+      title: item.title || item.name || item.video_title || 'Unknown',
+      count: item.video_count || item.count,
+      uploader: item.uploader || item.channel_name,
+      duration: item.duration,
+      description: item.description,
+      children:
+        (itemType === 'channel' && item.playlists?.map((p: any) => buildNode(p, 'playlist'))) ||
+        (itemType === 'playlist' && item.videos?.map((v: any) => buildNode(v, 'video'))) ||
+        [],
+    })
+    return buildNode(result, result.type)
   }
 
   const handleURLSubmit = async (url: string) => {
     setIsLoading(true)
     setError(null)
-    setTreeData(null)
-    setSelectedNodes([])
-
     try {
       const result = await apiClient.extractURL(url)
-
-      // Build tree structure based on result type
       const tree = buildTreeFromResult(result)
-      setTreeData(tree)
+      setCurrentData(tree)
+      setBreadcrumbPath([{ id: tree.id, title: tree.title, type: tree.type, data: tree }])
+      setCurrentItems(tree.children || (tree.type === 'video' ? [tree] : []))
+      setSelectedBrowseItems([])
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to extract URL'
       setError(message)
-      console.error('URL extraction error:', err)
     } finally {
       setIsLoading(false)
     }
   }
 
-  const buildTreeFromResult = (result: any): TreeNode => {
-    const buildNode = (item: any, itemType: 'channel' | 'playlist' | 'video'): TreeNode => {
-      const node: TreeNode = {
-        id: item.id || item.channel_id || item.playlist_id || item.video_id,
-        type: itemType,
-        title: item.title || item.name || item.video_title || 'Unknown',
-        count: item.video_count || item.count,
-        children: [],
-      }
+  const handleBreadcrumbNavigate = (level: number) => {
+    const newPath = breadcrumbPath.slice(0, level + 1)
+    setBreadcrumbPath(newPath)
+    const current = newPath[newPath.length - 1]?.data
+    setCurrentItems(current?.children || (current?.type === 'video' ? [current] : []))
+    setSelectedBrowseItems([])
+  }
 
-      // Recursively build children based on item type
-      if (itemType === 'channel' && item.playlists) {
-        node.children = item.playlists.map((playlist: any) =>
-          buildNode(playlist, 'playlist')
-        )
-      } else if (itemType === 'playlist' && item.videos) {
-        node.children = item.videos.map((video: any) =>
-          buildNode(video, 'video')
-        )
-      }
-
-      return node
-    }
-
-    return buildNode(result, result.type)
+  const handleDrill = (itemId: string) => {
+    const item = currentItems.find((i) => i.id === itemId)
+    if (!item) return
+    const newPath = [...breadcrumbPath, { id: item.id, title: item.title, type: item.type, data: item }]
+    setBreadcrumbPath(newPath)
+    setCurrentItems(item.children || (item.type === 'video' ? [item] : []))
+    setSelectedBrowseItems([])
   }
 
   const handleAddToQueue = async () => {
-    if (selectedNodes.length === 0) {
+    if (selectedBrowseItems.length === 0) {
       setError('Please select at least one video')
       return
     }
-
     setIsLoading(true)
-    setError(null)
-
     try {
-      // Create jobs for selected videos
-      for (const videoId of selectedNodes) {
-        await apiClient.createJob(videoId)
+      for (const itemId of selectedBrowseItems) {
+        const item = currentItems.find((i) => i.id === itemId)
+        if (item?.type === 'video') {
+          await apiClient.createJob(itemId, item.title)
+        }
       }
-
-      // Reload jobs
       await loadJobs()
-      setSelectedNodes([])
-
-      // Show success feedback
-      console.log(`Added ${selectedNodes.length} videos to queue`)
+      setSelectedBrowseItems([])
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to add to queue'
       setError(message)
-      console.error('Add to queue error:', err)
     } finally {
       setIsLoading(false)
     }
   }
+
+  const currentMetadata =
+    breadcrumbPath.length > 0 ? breadcrumbPath[breadcrumbPath.length - 1]?.data : null
+
+  const browseTableItems = currentItems.map((item) => ({
+    id: item.id,
+    title: item.title,
+    type: item.type,
+    duration: item.duration,
+    channel: item.uploader,
+    count: item.count,
+  }))
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -152,12 +161,9 @@ function App() {
 
       <main className="container mx-auto px-4 py-6 space-y-8 max-w-6xl">
         {error && (
-          <div className="rounded border border-destructive/30 bg-destructive/10 p-3 text-destructive text-sm">
-            {error}
-            <button
-              onClick={() => setError(null)}
-              className="float-right font-semibold hover:underline"
-            >
+          <div className="rounded border border-destructive/30 bg-destructive/10 p-4 text-destructive text-sm flex justify-between items-start">
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="font-semibold hover:underline">
               ✕
             </button>
           </div>
@@ -168,42 +174,39 @@ function App() {
           <div>
             <h2 className="text-lg font-semibold mb-2">Extract Content</h2>
             <p className="text-sm text-muted-foreground mb-4">
-              Paste any YouTube URL (video, playlist, or channel) to get started
+              Paste any YouTube URL (video, playlist, or channel)
             </p>
           </div>
           <URLInput onSubmit={handleURLSubmit} isLoading={isLoading} />
         </section>
 
-        {/* Metadata Tree Section */}
-        {treeData && (
-          <section className="space-y-4">
+        {/* Browse Content Section */}
+        {currentItems.length > 0 && (
+          <section className="space-y-6">
             <div>
-              <h2 className="text-lg font-semibold mb-2">Browse Content</h2>
-              <p className="text-sm text-muted-foreground mb-4">
-                Select the videos you want to transcribe
-              </p>
+              <h2 className="text-lg font-semibold mb-4">Browse Content</h2>
+              {breadcrumbPath.length > 0 && (
+                <BrowseBreadcrumb path={breadcrumbPath} onNavigate={handleBreadcrumbNavigate} />
+              )}
             </div>
-            <MetadataTree
-              data={treeData}
+
+            <BrowseTable
+              items={browseTableItems}
+              selectedItems={selectedBrowseItems}
+              onSelectionChange={setSelectedBrowseItems}
+              onAddToQueue={handleAddToQueue}
+              onDrill={handleDrill}
               isLoading={isLoading}
-              onSelectNodes={setSelectedNodes}
             />
 
-            {selectedNodes.length > 0 && (
-              <div className="flex items-center gap-3 rounded border border-primary/30 bg-primary/10 p-4">
-                <div className="flex-1">
-                  <p className="text-sm font-medium">
-                    {selectedNodes.length} video{selectedNodes.length !== 1 ? 's' : ''} selected
-                  </p>
-                </div>
-                <button
-                  onClick={handleAddToQueue}
-                  disabled={isLoading}
-                  className="rounded bg-primary px-4 py-2 text-primary-foreground hover:bg-primary/90 disabled:opacity-50 font-medium transition"
-                >
-                  {isLoading ? 'Adding...' : 'Add to Queue'}
-                </button>
-              </div>
+            {currentMetadata && (
+              <MetadataDisplay
+                title={currentMetadata.title}
+                description={currentMetadata.description}
+                uploader={currentMetadata.uploader}
+                videoCount={currentMetadata.count}
+                duration={currentMetadata.duration}
+              />
             )}
           </section>
         )}
@@ -216,18 +219,18 @@ function App() {
               Videos are processed one at a time in the background
             </p>
           </div>
-          <QueuePanel
+          <QueueTable
             jobs={jobs}
+            selectedJobs={selectedQueueJobs}
+            onSelectionChange={setSelectedQueueJobs}
             isLoading={isLoading}
-            onRefresh={loadJobs}
-            onJobUpdate={handleJobUpdate}
           />
         </section>
       </main>
 
       <footer className="border-t border-muted bg-card mt-12 py-4">
         <div className="container mx-auto px-4 text-center text-xs text-muted-foreground">
-          <p>YouTube Knowledge Base v0.1.0 • All files are saved locally</p>
+          <p>YouTube Knowledge Base v0.1.0 • Powered by WhisperX + shadcn/ui</p>
         </div>
       </footer>
     </div>
