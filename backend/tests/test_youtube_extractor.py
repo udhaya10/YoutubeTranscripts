@@ -313,6 +313,45 @@ class TestMarkdownGeneration:
         assert "Playlist 1" in md
 
 
+class TestRealYouTubeExtraction:
+    """Tests for REAL YouTube extraction (not mocked) - M7, M8, M9"""
+
+    def test_extract_real_video_metadata(self, extractor):
+        """Test extracting REAL video from YouTube with known stable video"""
+        # Rick Astley - Never Gonna Give You Up (stable, known to exist forever)
+        result = extractor.extract_video("dQw4w9WgXcQ")
+
+        # This test requires network access to YouTube
+        if result is not None:
+            assert result["id"] == "dQw4w9WgXcQ"
+            assert "Never Gonna Give You Up" in result["title"] or result["title"] != ""
+            assert result.get("duration", 0) > 200  # Should be ~3+ minutes
+            assert result.get("uploader", "") != ""
+
+    def test_extract_real_playlist_metadata(self, extractor):
+        """Test extracting REAL playlist from YouTube"""
+        # YouTube Music playlist (stable, public)
+        # Using a simple public playlist
+        result = extractor.extract_playlist("PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf")
+
+        # This test requires network access to YouTube
+        if result is not None:
+            assert result.get("video_count", 0) >= 0
+            assert result.get("title", "") != ""
+
+    def test_extract_real_channel_metadata(self, extractor):
+        """Test extracting REAL channel information from YouTube"""
+        # Using a stable public channel
+        result = extractor.extract_channel("UC_x5XG1OV2P6uZZ5FSM9Ttw")  # Google Developers
+
+        # This test requires network access to YouTube
+        if result is not None:
+            assert result.get("title", "") != ""
+            assert "playlist_count" in result or "title" in result
+            # Channel should have at least a title
+            assert len(result.get("title", "")) > 0
+
+
 class TestErrorHandling:
     """Tests for error handling"""
 

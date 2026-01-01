@@ -704,5 +704,168 @@ class TestResponseValidation:
             assert field in response.json()
 
 
+class TestAPIIntegration:
+    """Integration tests for API with real database and metadata store"""
+
+    def test_create_and_retrieve_job_with_real_db(self, monkeypatch, tmp_path):
+        """Test job creation and retrieval using real database"""
+        from pathlib import Path
+        from database import JobDatabase
+        from metadata_store import MetadataStore
+
+        # Create real temporary database
+        db_path = tmp_path / "test_integration.db"
+        real_db = JobDatabase(str(db_path))
+
+        # Patch API to use real database
+        api_routes.JobDatabase = lambda path: real_db
+        api_routes._db = real_db
+        monkeypatch.setattr(api_routes, 'get_db', lambda: real_db)
+
+        # Create test client
+        app = FastAPI()
+        app.include_router(router)
+        client = TestClient(app)
+
+        # Create job via API with real database
+        response = client.post("/api/jobs", json={
+            "video_id": "integration_test_vid",
+            "video_title": "Integration Test Video"
+        })
+
+        assert response.status_code == 200
+        job_id = response.json()["id"]
+
+        # Verify job was actually written to real database
+        retrieved = real_db.read_job(job_id)
+        assert retrieved is not None
+        assert retrieved["video_id"] == "integration_test_vid"
+        assert retrieved["video_title"] == "Integration Test Video"
+        assert retrieved["status"] == "pending"
+
+    def test_update_job_status_persists_to_real_db(self, monkeypatch, tmp_path):
+        """Test that job status updates actually persist to real database"""
+        from pathlib import Path
+        from database import JobDatabase
+
+        # Create real temporary database
+        db_path = tmp_path / "test_status_persist.db"
+        real_db = JobDatabase(str(db_path))
+
+        # Create a job directly in database
+        job = real_db.create_job(
+            "persist_test_job",
+            "video_persist_test",
+            "Persistence Test Video"
+        )
+
+        # Patch API to use real database
+        api_routes.JobDatabase = lambda path: real_db
+        api_routes._db = real_db
+        monkeypatch.setattr(api_routes, 'get_db', lambda: real_db)
+
+        # Create test client
+        app = FastAPI()
+        app.include_router(router)
+        client = TestClient(app)
+
+        # Update job status via API
+        response = client.patch(
+            "/api/jobs/persist_test_job?status=processing&progress=50.0"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "processing"
+        assert response.json()["progress"] == 50.0
+
+        # Verify status update persisted to real database
+        updated_job = real_db.read_job("persist_test_job")
+        assert updated_job["status"] == "processing"
+        assert updated_job["progress"] == 50.0
+
+    def test_list_jobs_returns_real_data_from_db(self, monkeypatch, tmp_path):
+        """Test that listing jobs returns actual data from real database"""
+        from pathlib import Path
+        from database import JobDatabase
+
+        # Create real temporary database with multiple jobs
+        db_path = tmp_path / "test_list_real.db"
+        real_db = JobDatabase(str(db_path))
+
+        # Create multiple jobs directly in database
+        real_db.create_job("list_job_1", "video_1", "Video 1")
+        real_db.create_job("list_job_2", "video_2", "Video 2")
+        real_db.create_job("list_job_3", "video_3", "Video 3")
+
+        # Update one to different status
+        real_db.update_job_status("list_job_1", "processing", progress=25.0)
+
+        # Patch API to use real database
+        api_routes.JobDatabase = lambda path: real_db
+        api_routes._db = real_db
+        monkeypatch.setattr(api_routes, 'get_db', lambda: real_db)
+
+        # Create test client
+        app = FastAPI()
+        app.include_router(router)
+        client = TestClient(app)
+
+        # List all jobs via API
+        response = client.get("/api/jobs")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 3
+        assert len(data["jobs"]) == 3
+
+        # Verify actual jobs are returned with correct data
+        job_ids = [job["id"] for job in data["jobs"]]
+        assert "list_job_1" in job_ids
+        assert "list_job_2" in job_ids
+        assert "list_job_3" in job_ids
+
+        # Verify job statuses are correct
+        job_1 = next(j for j in data["jobs"] if j["id"] == "list_job_1")
+        assert job_1["status"] == "processing"
+        assert job_1["progress"] == 25.0
+
+        job_2 = next(j for j in data["jobs"] if j["id"] == "list_job_2")
+        assert job_2["status"] == "pending"
+
+    def test_add_multiple_jobs_transaction_with_real_db(self, monkeypatch, tmp_path):
+        """Test adding multiple jobs in one operation writes all to real database"""
+        from pathlib import Path
+        from database import JobDatabase
+
+        # Create real temporary database
+        db_path = tmp_path / "test_batch_add.db"
+        real_db = JobDatabase(str(db_path))
+
+        # Patch API to use real database
+        api_routes.JobDatabase = lambda path: real_db
+        api_routes._db = real_db
+        monkeypatch.setattr(api_routes, 'get_db', lambda: real_db)
+
+        # Create test client
+        app = FastAPI()
+        app.include_router(router)
+        client = TestClient(app)
+
+        # Add multiple videos in batch via API
+        video_ids = ["batch_vid_1", "batch_vid_2", "batch_vid_3"]
+        response = client.post("/api/jobs/add-selected", json=video_ids)
+
+        assert response.status_code == 200
+        assert response.json()["created"] == 3
+
+        # Verify all jobs actually exist in real database
+        all_jobs = real_db.list_jobs()
+        assert len(all_jobs) == 3
+
+        batch_job_ids = [job["video_id"] for job in all_jobs]
+        for vid_id in video_ids:
+            assert vid_id in batch_job_ids
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

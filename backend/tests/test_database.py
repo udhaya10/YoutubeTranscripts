@@ -277,6 +277,130 @@ class TestDatabasePersistence:
         assert db_path.stat().st_size > 0
 
 
+class TestConcurrentAccess:
+    """Tests for concurrent database access (threading safety)"""
+
+    def test_concurrent_job_creation(self, job_db):
+        """Test creating jobs from multiple threads simultaneously"""
+        import threading
+
+        created_jobs = []
+        errors = []
+
+        def create_job(job_num):
+            try:
+                job = job_db.create_job(
+                    f"concurrent_job_{job_num}",
+                    f"video_{job_num}",
+                    f"Video {job_num}"
+                )
+                created_jobs.append(job)
+            except Exception as e:
+                errors.append(str(e))
+
+        # Create 10 threads all creating jobs simultaneously
+        threads = []
+        for i in range(10):
+            thread = threading.Thread(target=create_job, args=(i,))
+            threads.append(thread)
+            thread.start()
+
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+
+        # Verify no errors occurred
+        assert len(errors) == 0, f"Errors occurred: {errors}"
+        # Verify all jobs were created
+        assert len(created_jobs) == 10
+        # Verify all jobs are in database
+        all_jobs = job_db.list_jobs()
+        assert len(all_jobs) == 10
+
+    def test_concurrent_status_updates(self, job_db):
+        """Test updating job status from multiple threads"""
+        import threading
+
+        # Create a job first
+        job_db.create_job("update_job", "video_123", "Test")
+        errors = []
+        update_count = 0
+
+        def update_status(update_num):
+            nonlocal update_count
+            try:
+                progress = (update_num % 100)
+                job_db.update_job_status(
+                    "update_job",
+                    "processing",
+                    progress=float(progress)
+                )
+                update_count += 1
+            except Exception as e:
+                errors.append(str(e))
+
+        # Update from 5 threads
+        threads = []
+        for i in range(5):
+            thread = threading.Thread(target=update_status, args=(i,))
+            threads.append(thread)
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+
+        # Verify no errors
+        assert len(errors) == 0, f"Errors: {errors}"
+        assert update_count == 5
+
+        # Verify job still exists and is valid
+        job = job_db.read_job("update_job")
+        assert job is not None
+        assert job["status"] == "processing"
+
+    def test_mixed_concurrent_operations(self, job_db):
+        """Test concurrent creates, reads, and updates"""
+        import threading
+
+        operations_done = 0
+        errors = []
+        lock = threading.Lock()
+
+        def mixed_operation(op_num):
+            nonlocal operations_done
+            try:
+                if op_num % 3 == 0:
+                    # Create
+                    job_db.create_job(f"mixed_job_{op_num}", f"video_{op_num}", f"Video {op_num}")
+                elif op_num % 3 == 1:
+                    # Read (if job exists)
+                    existing_id = f"mixed_job_{op_num - 1}" if op_num > 0 else f"mixed_job_0"
+                    job_db.read_job(existing_id)
+                else:
+                    # Update (if job exists)
+                    existing_id = f"mixed_job_{op_num - 2}" if op_num > 1 else f"mixed_job_0"
+                    job_db.update_job_status(existing_id, "processing", progress=50.0)
+
+                with lock:
+                    operations_done += 1
+            except Exception as e:
+                errors.append(str(e))
+
+        # Run 9 mixed operations
+        threads = []
+        for i in range(9):
+            thread = threading.Thread(target=mixed_operation, args=(i,))
+            threads.append(thread)
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+
+        # Verify operations completed without error
+        assert len(errors) == 0, f"Errors: {errors}"
+        assert operations_done == 9
+
+
 class TestDatabaseIntegration:
     """Integration tests for complete workflows"""
 
