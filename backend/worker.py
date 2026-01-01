@@ -126,26 +126,18 @@ class BackgroundWorker:
                 video_url
             )
 
-            # Update progress during simulated transcription stages
-            for progress in [60, 70, 80, 90]:
-                if self.running:  # Check if still running
-                    await self._update_progress(job_id, "processing", progress)
-                    await asyncio.sleep(0.5)
-
             # Check transcription result
             if result and result.status == "success":
                 logger.info(f"Job {job_id} transcription successful")
+                logger.info(f"Transcript: {result.transcript_path}")
+                logger.info(f"Speakers: {result.speaker_count}, Words: {result.word_count}, Processing time: {result.processing_time:.1f}s")
 
                 # Update output paths with generated files
                 self.db.update_output_paths(
                     job_id,
                     transcript_md=result.transcript_path,
-                    transcript_json=result.transcript_path.replace(".md", ".json")
-                    if result.transcript_path
-                    else None,
-                    metadata_file=f"{result.output_dir}/metadata.json"
-                    if result.output_dir
-                    else None,
+                    transcript_json=result.metadata_path,
+                    metadata_file=result.metadata_path,
                 )
 
                 # Mark completed

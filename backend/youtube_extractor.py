@@ -1,6 +1,7 @@
 """
 YouTube data extraction using yt-dlp
 Extracts video, playlist, and channel metadata
+And transcribes audio using WhisperX
 """
 import json
 import logging
@@ -11,6 +12,10 @@ from dataclasses import dataclass
 from enum import Enum
 import socket
 import yt_dlp
+import subprocess
+import os
+import tempfile
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +47,31 @@ class ExtractionError:
         return f"ExtractionError({self.error_type}: {self.message}, retryable={self.retryable})"
 
 
+@dataclass
+class ProcessingResult:
+    """Result from video transcription"""
+    status: str  # "success" or "failed"
+    video_id: str
+    video_title: str
+    transcript_path: Optional[str] = None  # Path to markdown transcript
+    metadata_path: Optional[str] = None  # Path to metadata JSON
+    output_dir: Optional[str] = None  # Directory containing all output files
+    duration: float = 0.0  # Video duration in seconds
+    language: str = "en"  # Detected/used language
+    error_message: Optional[str] = None  # Error message if failed
+    speaker_count: int = 0  # Number of unique speakers detected
+    word_count: int = 0  # Word count in transcript
+    processing_time: float = 0.0  # Time taken to process in seconds
+
+    def __repr__(self):
+        if self.status == "success":
+            return f"ProcessingResult(status={self.status}, video={self.video_title}, speakers={self.speaker_count})"
+        else:
+            return f"ProcessingResult(status=failed, error={self.error_message})"
+
+
 class YouTubeExtractor:
-    """Extract YouTube video, playlist, and channel data"""
+    """Extract YouTube video, playlist, and channel data, and transcribe audio"""
 
     def __init__(self):
         """Initialize extractor with yt-dlp options"""
@@ -53,6 +81,293 @@ class YouTubeExtractor:
             'extract_flat': True,
             'skip_download': True,
         }
+        # Get HF token from environment
+        self.hf_token = os.getenv("HF_TOKEN")
+        self.language = os.getenv("LANGUAGE", "en")
+        self.compute_type = os.getenv("COMPUTE_TYPE", "int8")
+
+    def process_video(self, video_url: str) -> ProcessingResult:
+        """
+        Download audio from YouTube video and transcribe using WhisperX
+
+        Args:
+            video_url: Full YouTube URL
+
+        Returns:
+            ProcessingResult with transcript path and metadata
+        """
+        import time
+        start_time = time.time()
+
+        try:
+            # Extract video ID from URL
+            video_id = self._extract_video_id(video_url)
+            if not video_id:
+                return ProcessingResult(
+                    status="failed",
+                    video_id="unknown",
+                    video_title="unknown",
+                    error_message="Could not extract video ID from URL"
+                )
+
+            logger.info(f"Processing video: {video_url}")
+
+            # Create output directory
+            output_dir = Path(f"/app/transcripts/{video_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Output directory: {output_dir}")
+
+            # Download audio from YouTube
+            audio_path = self._download_audio(video_url, output_dir)
+            if not audio_path:
+                return ProcessingResult(
+                    status="failed",
+                    video_id=video_id,
+                    video_title="unknown",
+                    error_message="Failed to download audio from YouTube"
+                )
+
+            logger.info(f"Downloaded audio: {audio_path}")
+
+            # Get video title and duration
+            video_title, duration = self._get_video_info(video_url)
+
+            # Transcribe using WhisperX
+            transcript_data = self._transcribe_with_whisperx(str(audio_path), output_dir)
+            if not transcript_data:
+                return ProcessingResult(
+                    status="failed",
+                    video_id=video_id,
+                    video_title=video_title or "unknown",
+                    error_message="WhisperX transcription failed"
+                )
+
+            logger.info(f"Transcription complete: {len(transcript_data.get('segments', []))} segments")
+
+            # Create markdown transcript
+            transcript_path = self._create_transcript_markdown(video_id, video_title, transcript_data, output_dir)
+            if not transcript_path:
+                return ProcessingResult(
+                    status="failed",
+                    video_id=video_id,
+                    video_title=video_title or "unknown",
+                    error_message="Failed to create transcript markdown"
+                )
+
+            # Save full metadata
+            metadata_path = output_dir / "metadata.json"
+            metadata = {
+                "video_id": video_id,
+                "video_title": video_title,
+                "duration": duration,
+                "language": self.language,
+                "processed_at": datetime.now().isoformat(),
+                "speaker_count": len(set(seg.get("speaker", "unknown") for seg in transcript_data.get("segments", []))),
+                "segments": transcript_data.get("segments", []),
+            }
+            with open(metadata_path, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+            processing_time = time.time() - start_time
+
+            result = ProcessingResult(
+                status="success",
+                video_id=video_id,
+                video_title=video_title or "Unknown",
+                transcript_path=str(transcript_path),
+                metadata_path=str(metadata_path),
+                output_dir=str(output_dir),
+                duration=duration or 0.0,
+                language=self.language,
+                speaker_count=metadata.get("speaker_count", 0),
+                word_count=self._count_words(transcript_data),
+                processing_time=processing_time,
+            )
+
+            logger.info(f"✓ Transcription successful: {result}")
+            return result
+
+        except Exception as e:
+            processing_time = time.time() - start_time
+            logger.error(f"✗ Transcription failed: {str(e)}", exc_info=True)
+            return ProcessingResult(
+                status="failed",
+                video_id=self._extract_video_id(video_url) or "unknown",
+                video_title="unknown",
+                error_message=str(e),
+                processing_time=processing_time,
+            )
+
+    def _extract_video_id(self, url: str) -> Optional[str]:
+        """Extract video ID from YouTube URL"""
+        patterns = [
+            r'(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})',
+            r'(?:youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})',
+            r'(?:youtube\.com\/v\/)([a-zA-Z0-9_-]{11})',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        return None
+
+    def _download_audio(self, video_url: str, output_dir: Path) -> Optional[Path]:
+        """Download audio from YouTube video"""
+        try:
+            audio_path = output_dir / "audio.mp3"
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                'outtmpl': str(output_dir / 'audio'),
+                'quiet': True,
+                'no_warnings': True,
+            }
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                logger.info(f"Downloading audio from {video_url}...")
+                ydl.extract_info(video_url, download=True)
+
+            if audio_path.exists():
+                return audio_path
+            return None
+
+        except Exception as e:
+            logger.error(f"Failed to download audio: {str(e)}")
+            return None
+
+    def _get_video_info(self, video_url: str) -> tuple[Optional[str], Optional[float]]:
+        """Get video title and duration"""
+        try:
+            ydl_opts = {'quiet': True, 'no_warnings': True}
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(video_url, download=False)
+                return info.get("title"), info.get("duration")
+        except Exception as e:
+            logger.error(f"Failed to get video info: {str(e)}")
+            return None, None
+
+    def _transcribe_with_whisperx(self, audio_path: str, output_dir: Path) -> Optional[Dict[str, Any]]:
+        """Transcribe audio using WhisperX"""
+        try:
+            logger.info(f"Starting WhisperX transcription...")
+
+            # Build WhisperX command
+            cmd = [
+                "whisperx",
+                audio_path,
+                "--model", "base",
+                "--language", self.language,
+                "--compute_type", self.compute_type,
+                "--output_format", "json",
+                "--output_dir", str(output_dir),
+                "--vad_method", "silero",  # Use Silero VAD to avoid PyTorch 2.6 weights_only issue with PyAnnote
+            ]
+
+            # Add HF token if available for diarization
+            if self.hf_token:
+                cmd.extend(["--hf_token", self.hf_token])
+
+            logger.info(f"Running: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)
+
+            if result.returncode != 0:
+                logger.error(f"WhisperX failed: {result.stderr}")
+                return None
+
+            # Load the JSON output
+            json_output = output_dir / f"{Path(audio_path).stem}.json"
+            if json_output.exists():
+                with open(json_output, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+
+            logger.error("WhisperX did not produce JSON output")
+            return None
+
+        except subprocess.TimeoutExpired:
+            logger.error("WhisperX transcription timed out (>1200s/20min)")
+            return None
+        except Exception as e:
+            logger.error(f"WhisperX transcription failed: {str(e)}")
+            return None
+
+    def _create_transcript_markdown(self, video_id: str, title: str, transcript_data: Dict[str, Any], output_dir: Path) -> Optional[Path]:
+        """Create markdown transcript from WhisperX JSON output"""
+        try:
+            transcript_path = output_dir / "transcript.md"
+
+            # Group segments by speaker
+            segments_by_speaker = {}
+            for segment in transcript_data.get("segments", []):
+                speaker = segment.get("speaker", "Unknown")
+                if speaker not in segments_by_speaker:
+                    segments_by_speaker[speaker] = []
+                segments_by_speaker[speaker].append(segment)
+
+            # Build markdown
+            md_lines = [
+                f"# Transcript: {title}",
+                "",
+                f"**Video ID**: {video_id}",
+                f"**Processed**: {datetime.now().isoformat()}",
+                "",
+                "## Transcript by Speaker",
+                "",
+            ]
+
+            for speaker, segments in segments_by_speaker.items():
+                md_lines.append(f"### {speaker}")
+                md_lines.append("")
+                for segment in segments:
+                    start = self._format_timestamp(segment.get("start", 0))
+                    text = segment.get("text", "").strip()
+                    if text:
+                        md_lines.append(f"**[{start}]** {text}")
+                md_lines.append("")
+
+            # Full transcript
+            md_lines.extend([
+                "",
+                "## Full Transcript",
+                "",
+            ])
+            for segment in transcript_data.get("segments", []):
+                start = self._format_timestamp(segment.get("start", 0))
+                text = segment.get("text", "").strip()
+                speaker = segment.get("speaker", "Unknown")
+                if text:
+                    md_lines.append(f"**[{start}] {speaker}**: {text}")
+
+            with open(transcript_path, 'w', encoding='utf-8') as f:
+                f.write("\n".join(md_lines))
+
+            logger.info(f"Created transcript: {transcript_path}")
+            return transcript_path
+
+        except Exception as e:
+            logger.error(f"Failed to create transcript markdown: {str(e)}")
+            return None
+
+    @staticmethod
+    def _format_timestamp(seconds: float) -> str:
+        """Format seconds to HH:MM:SS"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+    @staticmethod
+    def _count_words(transcript_data: Dict[str, Any]) -> int:
+        """Count words in transcript"""
+        total = 0
+        for segment in transcript_data.get("segments", []):
+            text = segment.get("text", "").strip()
+            if text:
+                total += len(text.split())
+        return total
 
     def extract_video(self, video_id: str) -> Union[Dict[str, Any], ExtractionError]:
         """
