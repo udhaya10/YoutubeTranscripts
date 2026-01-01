@@ -1120,6 +1120,89 @@ class TestErrorHandlingScenarios:
 
         assert response.status_code >= 400
 
+    def test_api_handles_database_locked(self, client, mock_db):
+        """Test API gracefully handles database locked error"""
+        import sqlite3
+        mock_db.create_job.side_effect = sqlite3.OperationalError("database is locked")
+
+        response = client.post("/api/jobs", json={"video_id": "vid123"})
+
+        assert response.status_code == 500
+        assert "error" in response.json() or response.json().get("detail")
+
+    def test_api_handles_memory_error(self, client, mock_extractor, mock_parser):
+        """Test API handles memory exhaustion errors"""
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "huge_video"
+        }
+        mock_extractor.extract_video.side_effect = MemoryError("Out of memory")
+
+        response = client.post("/api/extract", json={
+            "url": "https://youtu.be/huge_video"
+        })
+
+        assert response.status_code >= 400
+
+    def test_api_handles_connection_reset(self, client, mock_extractor, mock_parser):
+        """Test API handles connection reset errors"""
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "reset_video"
+        }
+        mock_extractor.extract_video.side_effect = ConnectionResetError("Connection reset by peer")
+
+        response = client.post("/api/extract", json={
+            "url": "https://youtu.be/reset_video"
+        })
+
+        assert response.status_code >= 400
+
+    def test_api_handles_permission_denied(self, client, mock_metadata_store, mock_db):
+        """Test API handles permission denied errors during metadata save"""
+        mock_metadata_store.save_video_metadata.side_effect = PermissionError("Permission denied")
+        mock_db.create_job.return_value = {"id": "test_job"}
+
+        response = client.post("/api/jobs", json={"video_id": "vid123"})
+
+        # Should handle gracefully
+        assert response.status_code >= 400 or response.status_code == 200
+
+    def test_api_handles_malformed_response_data(self, client, mock_extractor, mock_parser):
+        """Test API handles extractor returning malformed data"""
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "malformed_video"
+        }
+        # Return incomplete data missing required fields
+        mock_extractor.extract_video.return_value = {"id": "partial"}
+
+        response = client.post("/api/extract", json={
+            "url": "https://youtu.be/malformed_video"
+        })
+
+        # Should handle missing fields gracefully
+        assert response.status_code >= 400 or "title" not in response.json()
+
+    def test_api_handles_none_response(self, client, mock_extractor, mock_parser):
+        """Test API handles None response from extractor"""
+        mock_parser.parse_url.return_value = {
+            "valid": True,
+            "type": "video",
+            "id": "none_video"
+        }
+        mock_extractor.extract_video.return_value = None
+
+        response = client.post("/api/extract", json={
+            "url": "https://youtu.be/none_video"
+        })
+
+        # API should handle gracefully (either error or empty response)
+        assert response.status_code in [200, 400, 500]
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -130,19 +130,6 @@ def channel_data():
 
 
 @pytest.fixture
-def mock_youtube_extractor(monkeypatch):
-    """Provides mock YouTube extractor with pre-configured responses"""
-    mock_extractor = MagicMock()
-
-    # Default mock returns
-    mock_extractor.extract_video.return_value = RICK_ASTLEY_VIDEO.copy()
-    mock_extractor.extract_playlist.return_value = YOUTUBE_PLAYLIST.copy()
-    mock_extractor.extract_channel.return_value = GOOGLE_DEVS_CHANNEL.copy()
-
-    return mock_extractor
-
-
-@pytest.fixture
 def temp_dir(tmp_path):
     """Provides temporary directory path for test files"""
     return str(tmp_path)
