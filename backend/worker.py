@@ -6,9 +6,9 @@ import asyncio
 import logging
 from typing import Optional
 
-from database import JobDatabase
-from youtube_extractor import YouTubeExtractor
-from websocket_manager import ConnectionManager
+from backend.database import JobDatabase
+from backend.youtube_extractor import YouTubeExtractor
+from backend.websocket_manager import ConnectionManager
 
 logger = logging.getLogger(__name__)
 

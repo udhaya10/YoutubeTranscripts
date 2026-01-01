@@ -10,10 +10,10 @@ import re
 import uuid
 import logging
 
-from youtube_utils import YouTubeURLParser
-from youtube_extractor import YouTubeExtractor, ExtractionError, ErrorType
-from database import JobDatabase
-from metadata_store import MetadataStore
+from backend.youtube_utils import YouTubeURLParser
+from backend.youtube_extractor import YouTubeExtractor, ExtractionError, ErrorType
+from backend.database import JobDatabase
+from backend.metadata_store import MetadataStore
 
 logger = logging.getLogger(__name__)
 

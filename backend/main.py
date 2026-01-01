@@ -90,7 +90,7 @@ async def startup_event():
     try:
         from backend.worker import BackgroundWorker
         from backend.database import JobDatabase
-        from youtube_extractor import YouTubeExtractor
+        from backend.youtube_extractor import YouTubeExtractor
 
         global worker
         db = JobDatabase()
@@ -100,10 +100,7 @@ async def startup_event():
         if recovered:
             logger.info(f"🔄 Recovered {len(recovered)} jobs: {recovered}")
 
-        extractor = YouTubeExtractor(
-            output_dir="/app/transcripts",
-            hf_token=os.getenv("HF_TOKEN")
-        )
+        extractor = YouTubeExtractor()
         worker = BackgroundWorker(db, extractor, ws_manager)
         await worker.start()
         logger.info("✓ Background worker started")
