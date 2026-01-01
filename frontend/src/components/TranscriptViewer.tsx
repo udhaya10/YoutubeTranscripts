@@ -4,6 +4,8 @@
  */
 import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
+import JSONView from '@uiw/react-json-view'
+import '@uiw/react-json-view/dark'
 import { apiClient } from '../api'
 
 interface TranscriptViewerProps {
@@ -108,9 +110,19 @@ export function TranscriptViewer({ jobId, videoTitle, onClose }: TranscriptViewe
               </pre>
             </div>
           ) : (
-            <pre className="bg-muted p-4 rounded overflow-auto max-h-[calc(90vh-300px)] text-sm font-mono text-green-400">
-              {JSON.stringify(jsonContent, null, 2)}
-            </pre>
+            <div className="overflow-auto max-h-[calc(90vh-300px)]">
+              <JSONView
+                value={jsonContent}
+                style={{
+                  backgroundColor: 'transparent',
+                  padding: '16px',
+                  fontSize: '14px',
+                  fontFamily: 'monospace',
+                }}
+                enableClipboard={true}
+                collapsed={1}
+              />
+            </div>
           )}
         </div>
 

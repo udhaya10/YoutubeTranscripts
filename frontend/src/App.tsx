@@ -88,20 +88,34 @@ function App() {
   }
 
   const handleURLSubmit = async (url: string) => {
+    console.log('[App] ===== handleURLSubmit called =====')
+    console.log('[App] URL:', url)
+    console.log('[App] Setting isLoading to true')
     setIsLoading(true)
     setError(null)
     try {
+      console.log('[App] Making API call to extract URL...')
       const result = await apiClient.extractURL(url)
+      console.log('[App] ✓ API call successful, result:', result)
+
+      console.log('[App] Building tree from result...')
       const tree = buildTreeFromResult(result)
+      console.log('[App] ✓ Tree built, setting state...')
+
       setCurrentData(tree)
       setBreadcrumbPath([{ id: tree.id, title: tree.title, type: tree.type, data: tree }])
       setCurrentItems(tree.children || (tree.type === 'video' ? [tree] : []))
       setSelectedBrowseItems([])
+
+      console.log('[App] ✓ State updated successfully')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to extract URL'
+      console.error('[App] ✗ Error:', message, err)
       setError(message)
     } finally {
+      console.log('[App] Setting isLoading to false')
       setIsLoading(false)
+      console.log('[App] ===== handleURLSubmit completed =====')
     }
   }
 

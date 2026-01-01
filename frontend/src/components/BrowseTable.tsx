@@ -2,7 +2,7 @@
  * Browse table for videos/playlists with checkboxes, progress, and actions
  * Shows extracted content with selection and queue options
  */
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   Table,
   TableBody,
@@ -47,6 +47,14 @@ export function BrowseTable({
 
   const allSelected = items.length > 0 && items.every((item) => selectedItems.includes(item.id))
   const someSelected = selectedItems.length > 0 && !allSelected
+  const headerCheckboxRef = useRef<HTMLInputElement>(null)
+
+  // Set indeterminate state for header checkbox
+  useEffect(() => {
+    if (headerCheckboxRef.current) {
+      headerCheckboxRef.current.indeterminate = someSelected
+    }
+  }, [someSelected])
 
   const handleSelectAll = () => {
     if (allSelected) {
@@ -79,12 +87,8 @@ export function BrowseTable({
           <TableRow>
             <TableHead className="w-12">
               <Checkbox
+                ref={headerCheckboxRef}
                 checked={allSelected}
-                ref={(element) => {
-                  if (element && someSelected) {
-                    element.indeterminate = true
-                  }
-                }}
                 onChange={handleSelectAll}
                 disabled={isLoading}
               />

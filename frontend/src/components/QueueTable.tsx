@@ -2,7 +2,7 @@
  * Queue table displaying processing, completed, and failed jobs
  * Shows progress bars, status, and bulk actions
  */
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   Table,
   TableBody,
@@ -41,6 +41,14 @@ export function QueueTable({
 }: QueueTableProps) {
   const allSelected = jobs.length > 0 && jobs.every((job) => selectedJobs.includes(job.id))
   const someSelected = selectedJobs.length > 0 && !allSelected
+  const headerCheckboxRef = useRef<HTMLInputElement>(null)
+
+  // Set indeterminate state for header checkbox
+  useEffect(() => {
+    if (headerCheckboxRef.current) {
+      headerCheckboxRef.current.indeterminate = someSelected
+    }
+  }, [someSelected])
 
   const handleSelectAll = () => {
     if (allSelected) {
@@ -113,12 +121,8 @@ export function QueueTable({
           <TableRow>
             <TableHead className="w-12">
               <Checkbox
+                ref={headerCheckboxRef}
                 checked={allSelected}
-                ref={(element) => {
-                  if (element && someSelected) {
-                    element.indeterminate = true
-                  }
-                }}
                 onChange={handleSelectAll}
                 disabled={isLoading}
               />

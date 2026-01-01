@@ -86,17 +86,39 @@ export function URLInput({ onSubmit, isLoading = false }: URLInputProps) {
   }, [isLoading])
 
   const handleSubmit = () => {
-    console.log('Button clicked. Validation:', validation, 'URL:', url)
-    if (validation !== 'invalid' && validation !== 'loading' && validation !== 'none' && url.trim()) {
-      console.log('Calling onSubmit with URL:', url)
-      onSubmit(url)
+    console.log('[URLInput] ===== SUBMIT BUTTON CLICKED =====')
+    console.log('[URLInput] Validation state:', validation)
+    console.log('[URLInput] URL value:', url)
+    console.log('[URLInput] isLoading prop:', isLoading)
+
+    const isValidationValid = validation !== 'invalid' && validation !== 'loading' && validation !== 'none'
+    const isUrlValid = url.trim().length > 0
+
+    console.log('[URLInput] Is validation valid:', isValidationValid)
+    console.log('[URLInput] Is URL valid:', isUrlValid)
+    console.log('[URLInput] Will proceed with submission:', isValidationValid && isUrlValid)
+
+    if (isValidationValid && isUrlValid) {
+      console.log('[URLInput] ✓ Conditions met, calling onSubmit callback with URL:', url)
+      try {
+        onSubmit(url)
+        console.log('[URLInput] ✓ onSubmit callback executed successfully')
+      } catch (error) {
+        console.error('[URLInput] ✗ Error in onSubmit callback:', error)
+      }
+
       // Clear after submission starts
       setTimeout(() => {
+        console.log('[URLInput] Clearing URL and validation state')
         setUrl('')
         setValidation('none')
       }, 100)
     } else {
-      console.log('Button click ignored. Validation:', validation, 'URL empty:', !url.trim())
+      console.log('[URLInput] ✗ Conditions NOT met - submission blocked')
+      console.log('[URLInput] Reason:', {
+        validation_not_valid: !isValidationValid ? `validation=${validation}` : 'OK',
+        url_not_valid: !isUrlValid ? 'URL is empty or whitespace only' : 'OK'
+      })
     }
   }
 
