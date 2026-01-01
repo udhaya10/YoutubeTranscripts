@@ -36,9 +36,11 @@ export function URLInput({ onSubmit, isLoading = false }: URLInputProps) {
     setValidation('loading')
 
     try {
-      console.log('[URLInput] Making API call to extract URL')
+      console.log('[URLInput] Making API call to extract URL:', inputUrl)
       const result = await apiClient.extractURL(inputUrl)
-      console.log('[URLInput] API response:', result)
+      console.log('[URLInput] ✓ API response successful:', result)
+      console.log('[URLInput] API result.type:', result.type)
+
       const typeMap: Record<string, ValidationResult> = {
         'video': 'video',
         'playlist': 'playlist',
@@ -46,24 +48,33 @@ export function URLInput({ onSubmit, isLoading = false }: URLInputProps) {
         'unknown': 'invalid'
       }
       const newValidation = typeMap[result.type] || 'invalid'
-      console.log('[URLInput] Setting validation to:', newValidation)
+      console.log('[URLInput] Mapped type "' + result.type + '" to validation "' + newValidation + '"')
+      console.log('[URLInput] Calling setValidation with:', newValidation)
       setValidation(newValidation)
+      console.log('[URLInput] ✓ setValidation called')
     } catch (err) {
-      console.log('[URLInput] API error during validation:', err)
+      console.error('[URLInput] ✗ API error during validation:', err)
+      console.log('[URLInput] Error message:', err instanceof Error ? err.message : String(err))
       setValidation('invalid')
     }
   }, [])
 
   const handleUrlChange = (value: string) => {
+    console.log('[URLInput] handleUrlChange - new value:', value)
     setUrl(value)
 
     // Clear previous timer
     if (validationTimer) {
+      console.log('[URLInput] Clearing previous validation timer')
       clearTimeout(validationTimer)
     }
 
     // Debounce validation - only validate after user stops typing for 500ms
-    const timer = setTimeout(() => validateUrl(value), 500)
+    console.log('[URLInput] Setting validation timer for 500ms')
+    const timer = setTimeout(() => {
+      console.log('[URLInput] Timer fired! Calling validateUrl')
+      validateUrl(value)
+    }, 500)
     setValidationTimer(timer)
   }
 
