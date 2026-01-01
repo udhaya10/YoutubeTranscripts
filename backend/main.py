@@ -94,6 +94,12 @@ async def startup_event():
 
         global worker
         db = JobDatabase()
+
+        # M20: Recover orphaned jobs from previous crash
+        recovered = db.recover_orphaned_jobs(max_retries=3)
+        if recovered:
+            logger.info(f"🔄 Recovered {len(recovered)} jobs: {recovered}")
+
         extractor = YouTubeExtractor(
             output_dir="/app/transcripts",
             hf_token=os.getenv("HF_TOKEN")

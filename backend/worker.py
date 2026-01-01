@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 class BackgroundWorker:
     """Processes pending jobs from queue in background with real-time progress updates"""
 
+    # M20: Retry configuration
+    MAX_RETRIES = 3
+    INITIAL_RETRY_DELAY = 5  # seconds
+
     def __init__(
         self,
         db: JobDatabase,
@@ -151,20 +155,60 @@ class BackgroundWorker:
                 # Transcription failed
                 error_msg = result.error_message if result else "Unknown error"
                 logger.error(f"Job {job_id} transcription failed: {error_msg}")
-                self.db.update_job_status(
-                    job_id, status="failed", error_message=error_msg
-                )
-                await self._broadcast_update(job_id)
+                await self._handle_job_failure(job_id, error_msg)
 
         except Exception as e:
             logger.error(f"Job {job_id} failed with exception: {e}", exc_info=True)
-            self.db.update_job_status(
-                job_id, status="failed", error_message=str(e)
-            )
-            await self._broadcast_update(job_id)
+            await self._handle_job_failure(job_id, str(e))
 
         finally:
             self.current_job_id = None
+
+    async def _handle_job_failure(self, job_id: str, error_msg: str):
+        """
+        Handle job failure with retry logic (M20)
+
+        Args:
+            job_id: Job ID that failed
+            error_msg: Error message describing the failure
+        """
+        job = self.db.read_job(job_id)
+        if not job:
+            logger.error(f"Cannot handle failure for {job_id}: job not found")
+            return
+
+        retry_count = job.get("retry_count", 0) or 0
+
+        if retry_count < self.MAX_RETRIES:
+            # Mark as failed but will retry
+            self.db.update_job_status(
+                job_id,
+                status="failed",
+                error_message=f"{error_msg} (will retry, attempt {retry_count + 1}/{self.MAX_RETRIES})"
+            )
+            logger.warning(
+                f"Job {job_id} failed (attempt {retry_count + 1}/{self.MAX_RETRIES}): {error_msg}"
+            )
+            # Broadcast failure for UI
+            await self._broadcast_update(job_id)
+
+            # Reset to pending for retry with exponential backoff
+            delay = self.INITIAL_RETRY_DELAY * (2 ** retry_count)
+            logger.info(f"Scheduling retry for job {job_id} in {delay} seconds")
+            await asyncio.sleep(delay)
+            self.db.update_job_status(job_id, status="pending", progress=0.0)
+            await self._broadcast_update(job_id)
+        else:
+            # Max retries exceeded, permanently fail
+            self.db.update_job_status(
+                job_id,
+                status="failed",
+                error_message=f"Max retries exceeded ({self.MAX_RETRIES}): {error_msg}"
+            )
+            logger.error(
+                f"Job {job_id} permanently failed after {self.MAX_RETRIES} retries"
+            )
+            await self._broadcast_update(job_id)
 
     async def _update_progress(
         self, job_id: str, status: str, progress: float, error_message: Optional[str] = None

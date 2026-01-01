@@ -78,13 +78,25 @@ export function JobCard({ job, onStatusChange }: JobCardProps) {
           <span className="text-muted-foreground">Created:</span>
           <p className="text-foreground">{formattedTime}</p>
         </div>
-        {job.error_message && (
-          <div className="col-span-2">
-            <span className="text-destructive">Error:</span>
-            <p className="text-destructive text-xs">{job.error_message}</p>
+        {job.retry_count !== undefined && job.retry_count > 0 && (
+          <div>
+            <span className="text-muted-foreground">Retries:</span>
+            <p className="text-foreground">{job.retry_count}/3</p>
           </div>
         )}
       </div>
+
+      {job.error_message && (
+        <div className="p-2 rounded bg-destructive/10 border border-destructive/30 space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-destructive font-medium">⚠️ Error</span>
+            {job.status === 'failed' && job.retry_count && job.retry_count < 3 && (
+              <span className="text-xs text-destructive/80">(will retry)</span>
+            )}
+          </div>
+          <p className="text-destructive text-xs leading-relaxed">{job.error_message}</p>
+        </div>
+      )}
 
       {job.output_paths && (
         <div className="pt-2 border-t border-muted space-y-1">

@@ -344,5 +344,222 @@ class TestWebSocketManager:
         assert len(manager.active_connections) == 0
 
 
+# Tests for M20: Error Handling and Recovery
+class TestM20ErrorHandling:
+    """Tests for M20 error handling and recovery mechanisms"""
+
+    @pytest.mark.asyncio
+    async def test_worker_handles_job_failure_with_retry(self, worker, mock_db, mock_extractor):
+        """Test worker retries failed job up to max retries"""
+        job = {
+            "id": "job-123",
+            "video_id": "vid123",
+            "status": "pending",
+            "retry_count": 0,
+        }
+        mock_db.list_pending_jobs.return_value = [job]
+        mock_db.read_job.return_value = job
+        mock_extractor.process_video.return_value = MockProcessingResult(
+            status="error",
+            error_message="Download failed",
+        )
+
+        await worker._process_job("job-123")
+
+        # Verify job was marked as failed first
+        calls = mock_db.update_job_status.call_args_list
+        # Should have calls to mark failed and then reset to pending
+        assert any("failed" in str(c) for c in calls)
+
+    @pytest.mark.asyncio
+    async def test_worker_stops_retrying_after_max_retries(self, worker, mock_db, mock_extractor):
+        """Test worker stops retrying after max retries exceeded"""
+        job = {
+            "id": "job-123",
+            "video_id": "vid123",
+            "status": "pending",
+            "retry_count": 3,  # Already at max retries
+        }
+        mock_db.list_pending_jobs.return_value = [job]
+        mock_db.read_job.return_value = job
+        mock_extractor.process_video.return_value = MockProcessingResult(
+            status="error",
+            error_message="Download failed",
+        )
+
+        await worker._process_job("job-123")
+
+        # Verify job was marked as permanently failed
+        calls = mock_db.update_job_status.call_args_list
+        failed_calls = [c for c in calls if "failed" in str(c) and "Max retries" in str(c)]
+        assert len(failed_calls) > 0
+
+    @pytest.mark.asyncio
+    async def test_handle_job_failure_with_retries_available(self, worker, mock_db):
+        """Test failure handling with available retries"""
+        job = {
+            "id": "job-123",
+            "video_id": "vid123",
+            "status": "processing",
+            "retry_count": 1,
+        }
+        mock_db.read_job.return_value = job
+
+        await worker._handle_job_failure("job-123", "Network error")
+
+        # Verify job marked as failed but will retry
+        assert mock_db.update_job_status.called
+        # Should mark as failed first, then reset to pending
+        calls = mock_db.update_job_status.call_args_list
+        assert len(calls) >= 2
+
+    @pytest.mark.asyncio
+    async def test_handle_job_failure_max_retries_exceeded(self, worker, mock_db):
+        """Test failure handling when max retries exceeded"""
+        job = {
+            "id": "job-123",
+            "video_id": "vid123",
+            "status": "processing",
+            "retry_count": 3,
+        }
+        mock_db.read_job.return_value = job
+
+        await worker._handle_job_failure("job-123", "Download failed")
+
+        # Verify job marked as permanently failed
+        calls = mock_db.update_job_status.call_args_list
+        # Should only mark as failed (no reset to pending)
+        assert len(calls) == 1
+        assert "failed" in str(calls[0])
+
+    @pytest.mark.asyncio
+    async def test_error_message_includes_retry_info(self, worker, mock_db):
+        """Test error message includes retry attempt info"""
+        job = {
+            "id": "job-123",
+            "video_id": "vid123",
+            "status": "processing",
+            "retry_count": 1,
+        }
+        mock_db.read_job.return_value = job
+
+        await worker._handle_job_failure("job-123", "Timeout error")
+
+        # Verify error message includes retry info
+        calls = mock_db.update_job_status.call_args_list
+        first_call = calls[0]
+        error_msg = first_call[1].get("error_message", "")
+        assert "retry" in error_msg.lower()
+        assert "2" in error_msg  # Attempt 2 of 3
+
+
+class TestM20DatabaseRecovery:
+    """Tests for M20 database recovery of orphaned jobs"""
+
+    def test_recover_orphaned_jobs_resets_to_pending(self):
+        """Test recovery resets processing jobs to pending"""
+        from database import JobDatabase
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        try:
+            db = JobDatabase(db_path)
+
+            # Create a job in processing state
+            job_id = "orphaned-job-1"
+            db.create_job(job_id, "vid123")
+            db.update_job_status(job_id, "processing", 50)
+
+            # Verify it's in processing state
+            job = db.read_job(job_id)
+            assert job["status"] == "processing"
+
+            # Recover orphaned jobs
+            recovered = db.recover_orphaned_jobs(max_retries=3)
+
+            # Verify job was recovered
+            assert job_id in recovered
+            recovered_job = db.read_job(job_id)
+            assert recovered_job["status"] == "pending"
+            assert recovered_job["progress"] == 0.0
+
+        finally:
+            import os
+            os.unlink(db_path)
+
+    def test_recover_orphaned_jobs_marks_exceeded_retries_as_failed(self):
+        """Test recovery marks jobs exceeding max retries as failed"""
+        from database import JobDatabase
+        import tempfile
+        import sqlite3
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        try:
+            db = JobDatabase(db_path)
+
+            # Create a job with max retries already exceeded
+            job_id = "exhausted-job-1"
+            db.create_job(job_id, "vid456")
+
+            # Manually set retry_count to 3 and status to processing
+            # to simulate a job that crashed with max retries already used
+            with sqlite3.connect(db_path) as conn:
+                conn.execute("""
+                    UPDATE jobs SET status = 'processing', retry_count = 3 WHERE id = ?
+                """, (job_id,))
+                conn.commit()
+
+            # Verify job is in processing state with retry_count=3
+            job = db.read_job(job_id)
+            assert job["status"] == "processing"
+            assert job["retry_count"] == 3
+
+            # Recover orphaned jobs
+            recovered = db.recover_orphaned_jobs(max_retries=3)
+
+            # Verify job was NOT recovered (max retries exceeded)
+            assert job_id not in recovered
+            failed_job = db.read_job(job_id)
+            assert failed_job["status"] == "failed"
+            assert "Max retries exceeded" in failed_job["error_message"]
+
+        finally:
+            import os
+            os.unlink(db_path)
+
+    def test_recover_no_orphaned_jobs_returns_empty(self):
+        """Test recovery with no orphaned jobs returns empty list"""
+        from database import JobDatabase
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        try:
+            db = JobDatabase(db_path)
+
+            # Create only pending jobs
+            job_id = "pending-job-1"
+            db.create_job(job_id, "vid789")
+
+            # Verify job is pending
+            job = db.read_job(job_id)
+            assert job["status"] == "pending"
+
+            # Recover orphaned jobs
+            recovered = db.recover_orphaned_jobs(max_retries=3)
+
+            # Verify no jobs were recovered
+            assert len(recovered) == 0
+
+        finally:
+            import os
+            os.unlink(db_path)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

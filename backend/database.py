@@ -215,6 +215,66 @@ class JobDatabase:
 
         return self.read_job(job_id)
 
+    def recover_orphaned_jobs(self, max_retries: int = 3) -> List[str]:
+        """Recover jobs stuck in 'processing' state from crashed worker
+
+        Called on startup to handle jobs left in processing state if the
+        worker crashed. Resets them to pending if retry count < max_retries.
+
+        Args:
+            max_retries: Maximum number of retries before marking permanently failed
+
+        Returns:
+            List of job IDs that were recovered
+        """
+        recovered_jobs = []
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Find jobs stuck in processing state
+            cursor = conn.execute("""
+                SELECT id, retry_count FROM jobs
+                WHERE status = 'processing'
+            """)
+            orphaned = cursor.fetchall()
+
+            for job_row in orphaned:
+                job_id = job_row["id"]
+                retry_count = job_row["retry_count"] or 0
+
+                if retry_count >= max_retries:
+                    # Too many retries, mark as permanently failed
+                    conn.execute("""
+                        UPDATE jobs
+                        SET status = 'failed',
+                            error_message = 'Max retries exceeded after worker crash'
+                        WHERE id = ?
+                    """, (job_id,))
+                    logger.warning(
+                        f"Job {job_id} marked as permanently failed "
+                        f"(exceeded max retries: {retry_count}/{max_retries})"
+                    )
+                else:
+                    # Reset to pending for retry
+                    conn.execute("""
+                        UPDATE jobs
+                        SET status = 'pending', progress = 0.0, error_message = NULL
+                        WHERE id = ?
+                    """, (job_id,))
+                    recovered_jobs.append(job_id)
+                    logger.info(
+                        f"Recovered orphaned job {job_id} "
+                        f"(retry {retry_count + 1}/{max_retries})"
+                    )
+
+            conn.commit()
+
+        if recovered_jobs:
+            logger.info(f"✓ Recovered {len(recovered_jobs)} orphaned jobs from crash")
+
+        return recovered_jobs
+
     @staticmethod
     def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
         """Convert sqlite3.Row to dict with parsed JSON fields
