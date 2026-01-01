@@ -80,6 +80,13 @@ class YouTubeExtractor:
             'no_warnings': False,
             'extract_flat': True,
             'skip_download': True,
+            # Add proper headers to avoid HTTP 400 errors from YouTube
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            },
+            # Retry on network errors
+            'socket_timeout': 30,
+            'retries': 3,
         }
         # Get HF token from environment
         self.hf_token = os.getenv("HF_TOKEN")
@@ -484,7 +491,14 @@ class YouTubeExtractor:
             error_msg = str(e).lower()
 
             # Classify error based on message content
-            if "not found" in error_msg or "404" in error_msg:
+            if "400" in error_msg:
+                # HTTP 400 errors usually mean YouTube is blocking the request
+                error = ExtractionError(
+                    ErrorType.UNKNOWN,
+                    f"YouTube rejected the request (HTTP 400). The playlist may be restricted or inaccessible. Try again later.",
+                    retryable=True
+                )
+            elif "not found" in error_msg or "404" in error_msg:
                 error = ExtractionError(ErrorType.NOT_FOUND, f"Playlist not found: {playlist_id}", retryable=False)
             elif "private" in error_msg:
                 error = ExtractionError(ErrorType.PRIVATE, "Playlist is private", retryable=False)
@@ -558,7 +572,15 @@ class YouTubeExtractor:
             error_msg = str(e).lower()
 
             # Classify error based on message content
-            if "not found" in error_msg or "404" in error_msg:
+            if "400" in error_msg:
+                # HTTP 400 errors usually mean YouTube is blocking the request
+                # Could be due to IP blocking, missing headers, or deprecated API
+                error = ExtractionError(
+                    ErrorType.UNKNOWN,
+                    f"YouTube rejected the request (HTTP 400). The channel may be restricted or inaccessible. Try again later.",
+                    retryable=True
+                )
+            elif "not found" in error_msg or "404" in error_msg:
                 error = ExtractionError(ErrorType.NOT_FOUND, f"Channel not found: {channel_id}", retryable=False)
             elif "suspended" in error_msg or "terminated" in error_msg:
                 error = ExtractionError(ErrorType.DELETED, "Channel has been terminated", retryable=False)
