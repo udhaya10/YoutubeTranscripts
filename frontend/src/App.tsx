@@ -36,9 +36,15 @@ function App() {
   // Connect to WebSocket for real-time updates
   const { isConnected } = useQueueWebSocket(handleJobUpdateFromWebSocket)
 
-  // Load jobs on mount
+  // Load jobs on mount and set up polling as fallback
   useEffect(() => {
     loadJobs()
+
+    // Poll for job updates every 3 seconds as fallback
+    // WebSocket provides real-time updates, but polling ensures UI stays synced
+    const pollInterval = setInterval(loadJobs, 3000)
+
+    return () => clearInterval(pollInterval)
   }, [])
 
   const loadJobs = async () => {
