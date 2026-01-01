@@ -30,6 +30,7 @@ interface BrowseTableProps {
   onSelectionChange: (itemIds: string[]) => void
   onAddToQueue: (itemIds: string[]) => void
   onDrill?: (itemId: string) => void
+  onDelete?: (itemId: string) => void
   isLoading?: boolean
 }
 
@@ -39,6 +40,7 @@ export function BrowseTable({
   onSelectionChange,
   onAddToQueue,
   onDrill,
+  onDelete,
   isLoading = false,
 }: BrowseTableProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null)
@@ -121,7 +123,7 @@ export function BrowseTable({
               <TableCell className="text-sm text-muted-foreground truncate max-w-xs">
                 {item.channel || '-'}
               </TableCell>
-              <TableCell className="text-right space-x-2">
+              <TableCell className="text-right space-x-1">
                 {item.type !== 'video' && onDrill && (
                   <Button
                     variant="ghost"
@@ -142,6 +144,21 @@ export function BrowseTable({
                     className="text-xs"
                   >
                     {selectedItems.includes(item.id) ? '✓ Selected' : 'Add'}
+                  </Button>
+                )}
+                {onDelete && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      if (confirm(`Delete "${item.title}"?`)) {
+                        onDelete(item.id)
+                      }
+                    }}
+                    disabled={isLoading}
+                    className="text-xs text-destructive hover:text-destructive"
+                  >
+                    🗑️
                   </Button>
                 )}
               </TableCell>

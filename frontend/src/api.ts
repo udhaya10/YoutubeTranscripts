@@ -114,6 +114,12 @@ class APIClient {
     })
   }
 
+  async deleteJob(jobId: string): Promise<{ success: boolean }> {
+    return this.request(`/jobs/${jobId}`, {
+      method: 'DELETE',
+    })
+  }
+
   // URL extraction
   async extractURL(url: string): Promise<URLExtractionResult> {
     return this.request('/extract', {

@@ -279,6 +279,60 @@ async def update_job(job_id: str, request: JobUpdateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/jobs/{job_id}")
+async def delete_job(job_id: str):
+    """Delete job and associated transcript files"""
+    try:
+        # Validate job_id format
+        if not job_id or len(job_id) > 100:
+            raise HTTPException(status_code=400, detail="Invalid job ID format")
+
+        db = get_db()
+        # Get job to find video_id before deletion
+        job = db.read_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        video_id = job.get("video_id")
+
+        # Delete from database
+        success = db.delete_job(job_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to delete job from database")
+
+        # Delete associated transcript files from filesystem
+        if video_id:
+            import os
+            import glob
+            transcripts_dir = os.path.join("/app", "transcripts")
+
+            # Find all files matching this video_id pattern
+            # Pattern: video_id_* (includes .json, .txt, .md, _speaker_*.mp3, etc.)
+            pattern = os.path.join(transcripts_dir, f"{video_id}_*")
+
+            try:
+                for file_path in glob.glob(pattern):
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                        logger.info(f"Deleted transcript file: {file_path}")
+                    elif os.path.isdir(file_path):
+                        import shutil
+                        shutil.rmtree(file_path)
+                        logger.info(f"Deleted transcript directory: {file_path}")
+            except Exception as e:
+                logger.error(f"Error deleting transcript files for {video_id}: {str(e)}")
+                # Don't fail the whole request if file deletion fails
+                # The job is already deleted from DB
+
+        return {"success": True, "message": f"Job {job_id} deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Job deletion error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/jobs/add-selected")
 async def add_selected_to_queue(request: AddToQueueRequest):
     """Add selected videos to queue"""

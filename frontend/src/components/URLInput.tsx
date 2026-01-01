@@ -20,23 +20,31 @@ export function URLInput({ onSubmit, isLoading = false }: URLInputProps) {
   const [validationTimer, setValidationTimer] = useState<NodeJS.Timeout | null>(null)
 
   const validateUrl = useCallback(async (inputUrl: string) => {
+    console.log('[URLInput] Starting validation for:', inputUrl)
     if (!inputUrl.trim()) {
+      console.log('[URLInput] Input empty, setting validation to none')
       setValidation('none')
       return
     }
 
+    console.log('[URLInput] Setting validation to loading')
     setValidation('loading')
 
     try {
+      console.log('[URLInput] Making API call to extract URL')
       const result = await apiClient.extractURL(inputUrl)
+      console.log('[URLInput] API response:', result)
       const typeMap: Record<string, ValidationResult> = {
         'video': 'video',
         'playlist': 'playlist',
         'channel': 'channel',
         'unknown': 'invalid'
       }
-      setValidation(typeMap[result.type] || 'invalid')
+      const newValidation = typeMap[result.type] || 'invalid'
+      console.log('[URLInput] Setting validation to:', newValidation)
+      setValidation(newValidation)
     } catch (err) {
+      console.log('[URLInput] API error during validation:', err)
       setValidation('invalid')
     }
   }, [])
@@ -62,11 +70,33 @@ export function URLInput({ onSubmit, isLoading = false }: URLInputProps) {
     }
   }, [validationTimer])
 
+  // Log validation state changes
+  useEffect(() => {
+    console.log('[URLInput] Validation state changed:', validation)
+  }, [validation])
+
+  // Log URL changes
+  useEffect(() => {
+    console.log('[URLInput] URL changed:', url)
+  }, [url])
+
+  // Log isLoading changes
+  useEffect(() => {
+    console.log('[URLInput] isLoading changed:', isLoading)
+  }, [isLoading])
+
   const handleSubmit = () => {
-    if (validation !== 'invalid' && validation !== 'loading' && validation !== 'none') {
+    console.log('Button clicked. Validation:', validation, 'URL:', url)
+    if (validation !== 'invalid' && validation !== 'loading' && validation !== 'none' && url.trim()) {
+      console.log('Calling onSubmit with URL:', url)
       onSubmit(url)
-      setUrl('')
-      setValidation('none')
+      // Clear after submission starts
+      setTimeout(() => {
+        setUrl('')
+        setValidation('none')
+      }, 100)
+    } else {
+      console.log('Button click ignored. Validation:', validation, 'URL empty:', !url.trim())
     }
   }
 
@@ -138,7 +168,10 @@ export function URLInput({ onSubmit, isLoading = false }: URLInputProps) {
       </div>
 
       <Button
-        onClick={handleSubmit}
+        onClick={() => {
+          console.log('[URLInput] Button clicked. isLoading:', isLoading, 'validation:', validation, 'url:', url)
+          handleSubmit()
+        }}
         disabled={isLoading || validation === 'invalid' || validation === 'loading' || validation === 'none'}
         className="w-full"
         size="lg"

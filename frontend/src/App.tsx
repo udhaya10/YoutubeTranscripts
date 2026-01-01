@@ -143,6 +143,44 @@ function App() {
     }
   }
 
+  const handleDeleteBrowseItem = (itemId: string) => {
+    // Remove from current items display (local state only)
+    setCurrentItems((prev) => prev.filter((item) => item.id !== itemId))
+    setSelectedBrowseItems((prev) => prev.filter((id) => id !== itemId))
+  }
+
+  const handleDeleteJob = async (jobId: string) => {
+    setIsLoading(true)
+    try {
+      await apiClient.deleteJob(jobId)
+      // Reload jobs to reflect deletion
+      await loadJobs()
+      setSelectedQueueJobs((prev) => prev.filter((id) => id !== jobId))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to delete job'
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleDeleteMultipleJobs = async (jobIds: string[]) => {
+    setIsLoading(true)
+    try {
+      for (const jobId of jobIds) {
+        await apiClient.deleteJob(jobId)
+      }
+      // Reload jobs to reflect deletions
+      await loadJobs()
+      setSelectedQueueJobs([])
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to delete jobs'
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const currentMetadata =
     breadcrumbPath.length > 0 ? breadcrumbPath[breadcrumbPath.length - 1]?.data : null
 
@@ -196,6 +234,7 @@ function App() {
               onSelectionChange={setSelectedBrowseItems}
               onAddToQueue={handleAddToQueue}
               onDrill={handleDrill}
+              onDelete={handleDeleteBrowseItem}
               isLoading={isLoading}
             />
 
@@ -223,6 +262,8 @@ function App() {
             jobs={jobs}
             selectedJobs={selectedQueueJobs}
             onSelectionChange={setSelectedQueueJobs}
+            onDeleteSingle={handleDeleteJob}
+            onDelete={handleDeleteMultipleJobs}
             isLoading={isLoading}
           />
         </section>

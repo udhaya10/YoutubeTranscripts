@@ -153,6 +153,29 @@ class JobDatabase:
         logger.info(f"Updated job {job_id}: status={status}, progress={progress}%")
         return self.read_job(job_id)
 
+    def delete_job(self, job_id: str) -> bool:
+        """Delete job from database
+
+        Args:
+            job_id: Job ID to delete
+
+        Returns:
+            True if deletion succeeded, False otherwise
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+                conn.commit()
+                success = cursor.rowcount > 0
+                if success:
+                    logger.info(f"Deleted job {job_id} from database")
+                else:
+                    logger.warning(f"Job {job_id} not found for deletion")
+                return success
+        except Exception as e:
+            logger.error(f"Error deleting job {job_id}: {str(e)}")
+            return False
+
     def list_jobs(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
         """List jobs, optionally filtered by status
 

@@ -23,6 +23,7 @@ interface QueueTableProps {
   onRetry?: (jobIds: string[]) => void
   onCancel?: (jobIds: string[]) => void
   onDelete?: (jobIds: string[]) => void
+  onDeleteSingle?: (jobId: string) => void
   isLoading?: boolean
 }
 
@@ -33,6 +34,7 @@ export function QueueTable({
   onRetry,
   onCancel,
   onDelete,
+  onDeleteSingle,
   isLoading = false,
 }: QueueTableProps) {
   const allSelected = jobs.length > 0 && jobs.every((job) => selectedJobs.includes(job.id))
@@ -155,6 +157,17 @@ export function QueueTable({
                 {formatDate(job.created_at)}
               </TableCell>
               <TableCell className="text-right space-x-1">
+                {job.status === 'completed' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => window.open(`/files/${job.id}`, '_blank')}
+                    disabled={isLoading}
+                    className="text-xs"
+                  >
+                    📄
+                  </Button>
+                )}
                 {job.status === 'failed' && onRetry && (
                   <Button
                     size="sm"
@@ -175,6 +188,21 @@ export function QueueTable({
                     className="text-xs"
                   >
                     Cancel
+                  </Button>
+                )}
+                {onDeleteSingle && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      if (confirm(`Delete job "${job.video_title || 'Untitled'}"?`)) {
+                        onDeleteSingle(job.id)
+                      }
+                    }}
+                    disabled={isLoading}
+                    className="text-xs text-destructive hover:text-destructive"
+                  >
+                    🗑️
                   </Button>
                 )}
               </TableCell>
